@@ -1,0 +1,15 @@
+src/
+tests/
+examples/
+.eslintrc.js
+.prettierrc
+tsconfig.json
+*.test.ts
+*.spec.ts
+coverage/
+.nyc_output/
+.taskmaster/
+.cursor/
+.roo/
+.roomodes
+.windsurfrules 
