@@ -26,8 +26,8 @@ program
   .argument('<path>', 'プロジェクトのパス (ローカルパス または GitHub URL)')
   .option(
     '--format <type>',
-    '出力形式 (page-structure, intelligent, page-component)',
-    'page-structure'
+    '出力形式 (intelligent, page-structure, page-component)',
+    'intelligent'
   )
   .option(
     '--output <name>',
@@ -55,18 +55,19 @@ program
       const projectPath = resolvedPath.path;
 
       switch (options.format) {
-        case 'page-structure':
-          await analyzePageStructure(projectPath, options, inputPath);
-          break;
         case 'intelligent':
           await analyzeIntelligently(projectPath, options, inputPath);
+          break;
+        case 'page-structure':
+          await analyzePageStructure(projectPath, options, inputPath);
           break;
         case 'page-component':
           await analyzePageComponents(projectPath, options, inputPath);
           break;
         default:
-          console.error(`❌ 未対応の形式: ${options.format}`);
-          process.exit(1);
+          // デフォルトはintelligent解析
+          await analyzeIntelligently(projectPath, options, inputPath);
+          break;
       }
     } catch (error) {
       ErrorHandler.handleError(error);

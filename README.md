@@ -48,20 +48,20 @@ npm run build
 ### ローカルプロジェクト解析
 
 ```bash
-# ページ構造解析 (デフォルト)
+# ページ構造解析（デフォルトでLLMインテリジェント解析が有効）
 mieru analyze ./your-project
-
-# LLMベースのインテリジェント解析
-mieru analyze ./your-project --format intelligent
 
 # ページ-コンポーネント関係詳細解析
 mieru analyze ./your-project --format page-component
 ```
 
+> **Note:**
+> Project MieruはデフォルトでLLM（AI）ベースのインテリジェント解析を行います。従来の `--format intelligent` オプションは不要です。
+
 ### GitHub リポジトリ解析
 
 ```bash
-# GitHub リポジトリのページ構造解析
+# GitHub リポジトリのページ構造解析（デフォルトでLLM解析）
 mieru analyze https://github.com/username/repository
 
 # GitHub リポジトリの特定ブランチ解析
@@ -69,9 +69,6 @@ mieru analyze https://github.com/username/repository/tree/develop
 
 # GitHub リポジトリの特定ディレクトリ解析
 mieru analyze https://github.com/username/repository/tree/main/frontend
-
-# LLMベースのインテリジェント解析
-mieru analyze https://github.com/username/repository --format intelligent
 ```
 
 ### Advanced Options
@@ -89,7 +86,13 @@ mieru analyze ./project --show-usage-context
 
 # シンプルな図表生成
 mieru analyze ./project --diagram-type simple
+
+# 明示的に従来形式で出力したい場合
+mieru analyze ./project --format page-component
 ```
+
+> **補足:**
+> `--format` オプションは、`page-component` など従来形式での出力を明示したい場合にのみ使用してください。
 
 ## 🎨 Visual Features
 
