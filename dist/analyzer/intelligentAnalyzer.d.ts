@@ -33,7 +33,12 @@ export declare class IntelligentAnalyzer {
     private getProjectStructure;
     private getSimpleDirectoryListing;
     private identifyRelevantFiles;
+    private identifyRelevantFilesFallback;
     private validateFileExistence;
+    /**
+     * 存在しないファイルの代替案を提案
+     */
+    private suggestAlternatives;
     private analyzePageComponentUsages;
     private isPageFile;
     private isComponentFile;

@@ -396,6 +396,9 @@ ${structure}
   private async validateFileExistence(files: string[]): Promise<string[]> {
     const { access } = await import('fs/promises');
     const validFiles: string[] = [];
+    const invalidFiles: string[] = [];
+
+    this.log(`🔍 ${files.length}個のファイルの存在確認を開始...`);
 
     for (const file of files) {
       try {
@@ -403,11 +406,70 @@ ${structure}
         await access(filePath);
         validFiles.push(file);
       } catch (error) {
-        this.log(`⚠️ ファイル不存在: ${file}`);
+        invalidFiles.push(file);
+        this.log(`❌ ファイル不存在: ${file}`);
+      }
+    }
+
+    this.log(`✅ ${validFiles.length}個のファイルが存在確認済み`);
+    this.log(`❌ ${invalidFiles.length}個のファイルが存在しません`);
+    
+    if (invalidFiles.length > 0) {
+      this.log(`📋 存在しないファイル一覧:`);
+      invalidFiles.forEach(file => this.log(`  - ${file}`));
+      
+      // 代替案の提案
+      this.log(`🔍 代替案を検索中...`);
+      const alternatives = await this.suggestAlternatives(invalidFiles);
+      if (alternatives.length > 0) {
+        this.log(`📝 代替案候補:`);
+        alternatives.forEach(alt => this.log(`  - ${alt}`));
+        const validAlternatives = await this.validateFileExistence(alternatives);
+        validFiles.push(...validAlternatives);
       }
     }
 
     return validFiles;
+  }
+
+  /**
+   * 存在しないファイルの代替案を提案
+   */
+  private async suggestAlternatives(invalidFiles: string[]): Promise<string[]> {
+    const alternatives: string[] = [];
+    
+    for (const file of invalidFiles) {
+      const baseName = path.basename(file, path.extname(file));
+      const dirName = path.dirname(file);
+      
+      // 拡張子違いを試す
+      const extensions = ['.js', '.jsx', '.ts', '.tsx', '.vue'];
+      for (const ext of extensions) {
+        if (!file.endsWith(ext)) {
+          alternatives.push(path.join(dirName, baseName + ext));
+        }
+      }
+      
+      // ディレクトリ違いを試す
+      if (dirName.includes('src')) {
+        alternatives.push(file.replace('src/', ''));
+      } else {
+        alternatives.push(`src/${file}`);
+      }
+      
+      // 大文字小文字違いを試す
+      const upperBaseName = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+      const lowerBaseName = baseName.charAt(0).toLowerCase() + baseName.slice(1);
+      
+      if (baseName !== upperBaseName) {
+        alternatives.push(path.join(dirName, upperBaseName + path.extname(file)));
+      }
+      if (baseName !== lowerBaseName) {
+        alternatives.push(path.join(dirName, lowerBaseName + path.extname(file)));
+      }
+    }
+    
+    return [...new Set(alternatives)];
   }
 
   private async analyzePageComponentUsages(

@@ -8,6 +8,8 @@ const execAsync = promisify(exec);
  * GitHub URLを解析してリポジトリ情報を取得
  */
 export function parseGitHubUrl(url) {
+    // @付きURLの場合、@を除去
+    const cleanUrl = url.startsWith('@') ? url.slice(1) : url;
     const patterns = [
         // https://github.com/owner/repo
         /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)(?:\/tree\/([^\/]+)(?:\/(.+))?)?$/,
@@ -17,7 +19,7 @@ export function parseGitHubUrl(url) {
         /^git@github\.com:([^\/]+)\/([^\/]+)\.git$/,
     ];
     for (const pattern of patterns) {
-        const match = url.match(pattern);
+        const match = cleanUrl.match(pattern);
         if (match) {
             return {
                 owner: match[1],
@@ -78,7 +80,9 @@ export async function cleanupTempDir(tempDir) {
  * 入力がGitHub URLかローカルパスかを判定
  */
 export function isGitHubUrl(input) {
-    return /^(https:\/\/github\.com\/|git@github\.com:)/.test(input);
+    // @付きURLの場合、@を除去してから判定
+    const cleanInput = input.startsWith('@') ? input.slice(1) : input;
+    return /^(https:\/\/github\.com\/|git@github\.com:)/.test(cleanInput);
 }
 /**
  * GitHub URLまたはローカルパスを処理して、解析可能なディレクトリパスを返す

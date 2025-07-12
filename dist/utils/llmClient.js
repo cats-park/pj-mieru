@@ -1,11 +1,27 @@
 // Load environment variables from .env file if exists
-if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
-    try {
-        require('dotenv').config();
+import { config } from 'dotenv';
+import path from 'path';
+// Initialize dotenv configuration
+try {
+    // Load .env file from project root
+    const envPath = path.resolve(process.cwd(), '.env');
+    config({ path: envPath });
+    // Debug: Log if API key is loaded
+    if (process.env.OPENAI_API_KEY) {
+        console.log('✅ OpenAI API key loaded successfully');
     }
-    catch (error) {
-        // dotenv is not installed, use system environment variables
+    else if (process.env.ANTHROPIC_API_KEY) {
+        console.log('✅ Anthropic API key loaded successfully');
     }
+    else if (process.env.PERPLEXITY_API_KEY) {
+        console.log('✅ Perplexity API key loaded successfully');
+    }
+    else {
+        console.log('⚠️ No API keys found in environment');
+    }
+}
+catch (error) {
+    console.log('⚠️ Failed to load dotenv:', error);
 }
 export class LLMClient {
     config;

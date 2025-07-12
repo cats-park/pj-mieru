@@ -1,51 +1,52 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import path from 'path';
-import fs from 'fs';
-import { BaseAnalyzer } from '../core/baseAnalyzer.js';
-import { ErrorHandler } from '../core/errorHandler.js';
-import { PageAnalyzer } from '../analyzer/pageAnalyzer.js';
-import { IntelligentAnalyzer } from '../analyzer/intelligentAnalyzer.js';
-import { IntelligentMermaidGenerator } from '../generators/intelligentMermaidGenerator.js';
 import { writeFile } from 'fs/promises';
 import { resolveProjectPath, isGitHubUrl } from '../utils/githubHelper.js';
-import { TechStackAnalyzer } from '../analyzer/techStackAnalyzer.js';
+import { UnifiedAnalyzer } from '../analyzer/unifiedAnalyzer.js';
+import { ErrorHandler } from '../core/errorHandler.js';
 
 const program = new Command();
+
+// プロジェクト名を抽出する関数
+function extractProjectName(inputPath: string): string {
+  // GitHub URLの場合
+  if (isGitHubUrl(inputPath)) {
+    const url = new URL(inputPath);
+    const pathSegments = url.pathname.split('/').filter(Boolean);
+    if (pathSegments.length >= 2) {
+      return pathSegments[pathSegments.length - 1]; // リポジトリ名
+    }
+  }
+  
+  // ローカルパスの場合
+  const normalizedPath = path.normalize(inputPath);
+  const projectName = path.basename(normalizedPath);
+  return projectName;
+}
 
 // Version and basic info
 program
   .name('mieru')
-  .description('Vue.js、React、Nuxt.js等のプロジェクト構造を可視化するツール')
+  .description('React、Vue、Next.js、Nuxt.js等のプロジェクト構造を可視化するツール')
   .version('1.0.0');
 
-// Analyze command
+// Analyze command - シンプルな1つのコマンド
 program
   .command('analyze')
-  .description('プロジェクトを解析してコンポーネント/ページ構造を可視化する')
+  .description('プロジェクトを解析してページとコンポーネントの構造を可視化する')
   .argument('<path>', 'プロジェクトのパス (ローカルパス または GitHub URL)')
-  .option(
-    '--format <type>',
-    '出力形式 (intelligent, page-structure, page-component)',
-    'intelligent'
-  )
-  .option(
-    '--output <name>',
-    '出力ファイル名のプレフィックス',
-    'analysis-report'
-  )
-  .option('--group-by-directory', 'ディレクトリでグループ化する', false)
-  .option('--show-usage-context', '使用コンテキストを表示する', false)
-  .option(
-    '--diagram-type <type>',
-    'ダイアグラムタイプ (enhanced, simple)',
-    'enhanced'
-  )
+  .option('--output <name>', '出力ファイル名のプレフィックス')
+  .option('--verbose', '詳細なログを表示', false)
   .action(async (inputPath: string, options) => {
     const isGitHub = isGitHubUrl(inputPath);
+    const projectName = extractProjectName(inputPath);
+    const outputPrefix = options.output || `analysis-${projectName}`;
+    
     console.log(`🔍 プロジェクトを解析中: ${inputPath}`);
-    console.log(`📊 出力形式: ${options.format}`);
     console.log(`🌐 ソース: ${isGitHub ? 'GitHub リポジトリ' : 'ローカルディレクトリ'}`);
+    console.log(`📁 プロジェクト名: ${projectName}`);
+    console.log('');
 
     let resolvedPath: { path: string; isTemporary: boolean; cleanup?: () => Promise<void> } | null = null;
 
@@ -54,21 +55,50 @@ program
       resolvedPath = await resolveProjectPath(inputPath);
       const projectPath = resolvedPath.path;
 
-      switch (options.format) {
-        case 'intelligent':
-          await analyzeIntelligently(projectPath, options, inputPath);
-          break;
-        case 'page-structure':
-          await analyzePageStructure(projectPath, options, inputPath);
-          break;
-        case 'page-component':
-          await analyzePageComponents(projectPath, options, inputPath);
-          break;
-        default:
-          // デフォルトはintelligent解析
-          await analyzeIntelligently(projectPath, options, inputPath);
-          break;
+      // 統合解析エンジンを使用
+      const analyzer = new UnifiedAnalyzer(projectPath);
+      const result = await analyzer.analyze();
+
+      // 結果を表示
+      console.log('');
+      console.log('📊 解析結果:');
+      console.log(`   フレームワーク: ${result.framework.name} (信頼度: ${result.framework.confidence}%)`);
+      console.log(`   総ファイル数: ${result.totalFiles}`);
+      console.log(`   検出ページ数: ${result.pages.length}`);
+      console.log(`   解析時間: ${result.analysisTime}ms`);
+      console.log('');
+
+      // ページ詳細を表示
+      if (result.pages.length > 0) {
+        console.log('📄 検出されたページ:');
+        result.pages.forEach((page, index) => {
+          console.log(`   ${index + 1}. ${page.name} (${page.route})`);
+          console.log(`      ファイル: ${page.filePath}`);
+          console.log(`      コンポーネント: ${page.components.length}個`);
+          if (options.verbose) {
+            console.log(`      理由: ${page.reason}`);
+          }
+        });
+        console.log('');
+      } else {
+        console.log('⚠️  ページが検出されませんでした。');
+        console.log('');
       }
+
+      // Markdownレポートを生成
+      const markdownContent = generateMarkdownReport(result, projectName, inputPath);
+      const outputFileName = `${outputPrefix}-pages.md`;
+      await writeFile(outputFileName, markdownContent);
+
+      console.log(`📝 レポートを生成しました: ${outputFileName}`);
+      
+      // 詳細ログを表示（オプション）
+      if (options.verbose) {
+        console.log('');
+        console.log('📋 詳細ログ:');
+        result.analysisLog.forEach(log => console.log(`   ${log}`));
+      }
+
     } catch (error) {
       ErrorHandler.handleError(error);
     } finally {
@@ -96,404 +126,198 @@ program
     }
   });
 
-async function analyzePageStructure(projectPath: string, options: any, originalInputPath: string) {
-  // 基本解析を実行
-  const baseAnalyzer = new BaseAnalyzer();
-  const { scanResult, astResults, vueResults } =
-    await baseAnalyzer.analyzeProject(projectPath, {
-      verbose: true,
-    });
+// Markdownレポート生成関数
+function generateMarkdownReport(result: any, projectName: string, inputPath: string): string {
+  const { framework, pages, totalFiles, analysisTime } = result;
+  
+  let markdown = `# ${projectName} - ページ構造解析レポート
 
-  console.log('🔍 技術スタックを解析中...');
+## 📊 プロジェクト概要
 
-  // 技術スタック解析を実行
-  const techStackAnalyzer = new TechStackAnalyzer();
-  const techStack = await techStackAnalyzer.analyzeTechStack(projectPath, scanResult.files);
+- **プロジェクト名**: ${projectName}
+- **ソース**: ${inputPath}
+- **フレームワーク**: ${framework.name} ${framework.version ? `(${framework.version})` : ''}
+- **信頼度**: ${framework.confidence}%
+- **総ファイル数**: ${totalFiles}
+- **解析時間**: ${analysisTime}ms
+- **生成日時**: ${new Date().toLocaleString('ja-JP')}
 
-  console.log('📄 ページ構造を解析中...');
+## 📄 検出されたページ (${pages.length}個)
 
-  // ページ解析を実行
-  const analyzer = new PageAnalyzer();
-  const result = await analyzer.analyzePages(
-    scanResult.files,
-    astResults,
-    vueResults
-  );
-
-  // Create a simple mermaid diagram with subgraphs
-  const mermaidLines = [
-    '```mermaid',
-    'flowchart LR',
-    '',
-    '%% ページ構造図',
-    '',
-  ];
-
-  // Add pages as subgraphs with components inside
-  let pageIndex = 1;
-  result.pages.forEach((page, path) => {
-    const pageId = `page${pageIndex++}`;
-    // Use relative path from src/ for cleaner display
-    const displayPath = path.includes('/src/') ? path.split('/src/')[1] : path;
-
-    mermaidLines.push(`  subgraph ${pageId} ["📄 ${displayPath}"]`);
-
-    // Add components inside the subgraph with nesting
-    if (page.components.length > 0) {
-      const componentGroups = groupComponentsByParent(page.components);
-
-      generateNestedComponents(mermaidLines, componentGroups, pageId);
-    } else {
-      // Add invisible placeholder to maintain subgraph styling
-      mermaidLines.push(`    ${pageId}_placeholder[" "]`);
-      mermaidLines.push(
-        `    style ${pageId}_placeholder fill:transparent,stroke:transparent`
-      );
-    }
-
-    mermaidLines.push('  end');
-
-    // Add page styling (green theme)
-    mermaidLines.push(
-      `  style ${pageId} fill:#E8F5E8,stroke:#4CAF50,color:#2E7D32`
-    );
-    mermaidLines.push('');
-  });
-
-  mermaidLines.push('```');
-  const mermaidDiagram = mermaidLines.join('\n');
-
-  // 参照元リンクの生成
-  const sourceLink = isGitHubUrl(originalInputPath) 
-    ? `[${originalInputPath}](${originalInputPath})`
-    : `\`${originalInputPath}\``;
-
-  // Create a detailed markdown report with tech stack info
-  const markdownLines = [
-    '# ページ構造解析レポート',
-    '',
-    `**生成日時**: ${new Date().toLocaleString('ja-JP')}`,
-    `**参照元**: ${sourceLink}`,
-    '',
-    '## 🚀 技術スタック',
-    '',
-    `### 主要技術`,
-    `- **言語**: ${techStack.primaryLanguage}`,
-    `- **フレームワーク**: ${techStack.primaryFramework}`,
-    `- **パッケージマネージャー**: ${techStack.packageManager}`,
-    '',
-    '### 言語構成',
-    ...techStack.languages.slice(0, 5).map(lang => 
-      `- **${lang.name}**: ${lang.percentage}% (${lang.fileCount}ファイル)`
-    ),
-    '',
-    '### フレームワーク/ライブラリ',
-    ...techStack.frameworks.map(fw => 
-      `- **${fw.name}**${fw.version ? ` v${fw.version}` : ''} (信頼度: ${fw.confidence})`
-    ),
-    '',
-    ...(techStack.buildTools.length > 0 ? [
-      '### ビルドツール',
-      ...techStack.buildTools.map(tool => 
-        `- **${tool.name}**${tool.version ? ` v${tool.version}` : ''}`
-      ),
-      ''
-    ] : []),
-    '## 📊 統計情報',
-    '',
-    `- **総ページ数**: ${result.pages.size}`,
-    `- **総コンポーネント数**: ${result.stats.totalComponents}`,
-    `- **解析時間**: ${result.stats.analysisTime}ms`,
-    '',
-    '## 🗺️ プロジェクト構造図',
-    '',
-    mermaidDiagram,
-  ];
-
-  const markdownReport = markdownLines.join('\n');
-  const outputPath = `${options.output}-pages.md`;
-
-  await writeFile(outputPath, markdownReport);
-  console.log(`✅ ページ構造図を生成しました: ${outputPath}`);
-  console.log(
-    `🚀 技術スタック: ${techStack.primaryLanguage} + ${techStack.primaryFramework}`
-  );
-  console.log(
-    `📊 統計: ${result.pages.size} ページ, ${result.stats.totalComponents} コンポーネント`
-  );
-}
-
-async function analyzeIntelligently(projectPath: string, options: any, originalInputPath: string) {
-  console.log('🧠 インテリジェント解析を開始します...');
-  console.log(
-    '⚠️  この機能はLLM APIキーが必要です (.env ファイルで設定してください)'
-  );
-
-  try {
-    const analyzer = new IntelligentAnalyzer(projectPath);
-    const result = await analyzer.analyze();
-
-    const generator = new IntelligentMermaidGenerator({
-      title: 'インテリジェント プロジェクト解析',
-      showFrameworkInfo: true,
-      showComponentTypes: true,
-      showUsageContext: options.showUsageContext,
-      groupByDirectory: options.groupByDirectory,
-    });
-
-    const markdownReport = generator.generateMarkdownReport(result);
-    const outputPath = `${options.output}-intelligent.md`;
-
-    await writeFile(outputPath, markdownReport);
-    console.log(`✅ インテリジェント解析レポートを生成しました: ${outputPath}`);
-    console.log(
-      `🎯 検出フレームワーク: ${result.framework.framework} (信頼度: ${result.framework.confidence}%)`
-    );
-    console.log(
-      `📊 統計: ${result.pageComponentUsages.length} ページ, ${result.pageComponentUsages.reduce((sum, page) => sum + page.components.length, 0)} コンポーネント`
-    );
-
-    // Also output the analysis log
-    const logPath = `${options.output}-analysis.log`;
-    await writeFile(logPath, result.analysisLog.join('\n'));
-    console.log(`📝 解析ログを出力しました: ${logPath}`);
-  } catch (error) {
-    console.error('❌ インテリジェント解析に失敗しました:');
-    ErrorHandler.handleError(error);
-  }
-}
-
-async function analyzePageComponents(projectPath: string, options: any, originalInputPath: string) {
-  console.log('🧠 LLMベースのページ-コンポーネント解析を開始します...');
-  console.log(
-    '⚠️  この機能はLLM APIキーが必要です (.env ファイルで設定してください)'
-  );
-
-  try {
-    const analyzer = new IntelligentAnalyzer(projectPath);
-    const result = await analyzer.analyze();
-
-    const generator = new IntelligentMermaidGenerator({
-      title: 'ページ-コンポーネント関係図',
-      showFrameworkInfo: true,
-      showComponentTypes: true,
-      showUsageContext: options.showUsageContext,
-      groupByDirectory: options.groupByDirectory,
-    });
-
-    // Generate both diagram types
-    let diagram: string;
-    if (options.diagramType === 'simple') {
-      diagram = generator.generatePageComponentDiagram(result);
-    } else {
-      diagram = generator.generateDiagram(result);
-    }
-
-    // 参照元リンクの生成
-    const sourceLink = isGitHubUrl(originalInputPath) 
-      ? `[${originalInputPath}](${originalInputPath})`
-      : `\`${originalInputPath}\``;
-
-    // Create enhanced report with both diagrams
-    const markdownReport = `# ページ-コンポーネント関係解析レポート
-
-**生成日時**: ${new Date().toLocaleString('ja-JP')}
-**参照元**: ${sourceLink}
-
-## 🚀 検出されたフレームワーク
-
-- **フレームワーク**: ${result.framework.framework}
-${result.framework.version ? `- **バージョン**: ${result.framework.version}` : ''}
-- **信頼度**: ${result.framework.confidence}%
-
-## 📊 統計情報
-
-- **総ページ数**: ${result.pageComponentUsages.length}
-- **総コンポーネント使用数**: ${result.pageComponentUsages.reduce((sum, page) => sum + page.components.length, 0)}
-- **解析対象ファイル数**: ${result.relevantFiles.length}
-
-## 🗺️ ページ-コンポーネント関係図
-
-${diagram}
-
-## 📄 詳細内訳
-
-${result.pageComponentUsages
-  .map((page) => {
-    const pageDisplayName =
-      page.page
-        .split('/')
-        .pop()
-        ?.replace(/\.(vue|jsx?|tsx?)$/i, '') || 'page';
-
-    let section = `### ${pageDisplayName}\n\n`;
-    section += `**ファイルパス**: \`${page.page}\`\n\n`;
-
-    if (page.components.length > 0) {
-      section += '**使用コンポーネント**:\n';
-      page.components.forEach((component) => {
-        const typeIcon = getComponentTypeIcon(component.type);
-        let componentLine = `- ${typeIcon} **${component.name}** (${component.type})`;
-
-        if (options.showUsageContext && component.usageContext) {
-          componentLine += ` - ${component.usageContext}`;
-        }
-
-        section += componentLine + '\n';
-      });
-    } else {
-      section += '**使用コンポーネント**: なし\n';
-    }
-
-    section += '\n';
-    return section;
-  })
-  .join('')}
-
-## 🔍 解析ログ
-
-\`\`\`
-${result.analysisLog.join('\n')}
-\`\`\`
 `;
 
-    const outputPath = `${options.output}-page-components.md`;
+  if (pages.length === 0) {
+    markdown += `⚠️ ページが検出されませんでした。
 
-    await writeFile(outputPath, markdownReport);
-    console.log(
-      `✅ ページ-コンポーネント解析レポートを生成しました: ${outputPath}`
-    );
-    console.log(
-      `🎯 検出フレームワーク: ${result.framework.framework} (信頼度: ${result.framework.confidence}%)`
-    );
-    console.log(
-      `📊 統計: ${result.pageComponentUsages.length} ページ, ${result.pageComponentUsages.reduce((sum, page) => sum + page.components.length, 0)} コンポーネント使用`
-    );
+### 考えられる原因:
+1. プロジェクトが対応フレームワーク（React、Vue、Next.js、Nuxt.js）でない
+2. ページファイルが標準的な場所にない
+3. ファイル名が一般的でない
 
-    // Also output the analysis log
-    const logPath = `${options.output}-page-components.log`;
-    await writeFile(logPath, result.analysisLog.join('\n'));
-    console.log(`📝 解析ログを出力しました: ${logPath}`);
-  } catch (error) {
-    console.error('❌ ページ-コンポーネント解析に失敗しました:');
-    ErrorHandler.handleError(error);
-  }
-}
+`;
+    // 空のMermaid図を追加
+    markdown += `
+## 🗺️ プロジェクト構造図
 
-function getComponentTypeIcon(type: string): string {
-  const iconMap: Record<string, string> = {
-    component: '🧩',
-    layout: '📐',
-    directive: '⚡',
-    utility: '🛠️',
-  };
-  return iconMap[type] || '📦';
-}
+\`\`\`mermaid
+flowchart LR
+  empty["ページが検出されませんでした"]
+  style empty fill:#FFF3CD,stroke:#856404,color:#856404
+\`\`\`
 
-function groupComponentsByParent(components: any[]): {
-  parents: any[];
-  children: Map<string, any[]>;
-} {
-  const parents: any[] = [];
-  const children = new Map<string, any[]>();
+`;
+  } else {
+    // Mermaid図を追加
+    markdown += generateMermaidDiagram(pages);
+    
+    // 各ページの詳細を追加
+    pages.forEach((page: any, index: number) => {
+      markdown += `### ${index + 1}. 📄 ${page.name}
 
-  components.forEach((comp) => {
-    if (!comp.parent) {
-      parents.push(comp);
-    } else {
-      if (!children.has(comp.parent)) {
-        children.set(comp.parent, []);
+- **ファイル**: \`${page.filePath}\`
+- **ルート**: \`${page.route}\`
+- **コンポーネント数**: ${page.components.length}個
+- **判定理由**: ${page.reason}
+
+`;
+
+      if (page.components.length > 0) {
+        markdown += `#### 🧩 使用コンポーネント
+
+`;
+        page.components.forEach((comp: any) => {
+          const icon = getComponentIcon(comp.type);
+          markdown += `- ${icon} **${comp.name}** (${comp.type})`;
+          if (comp.filePath) {
+            markdown += ` - \`${comp.filePath}\``;
+          }
+          markdown += '\n';
+        });
+        markdown += '\n';
       }
-      children.get(comp.parent)!.push(comp);
-    }
-  });
-
-  return { parents, children };
-}
-
-function generateNestedComponents(
-  mermaidLines: string[],
-  componentGroups: { parents: any[]; children: Map<string, any[]> },
-  pageId: string
-): void {
-  let componentIndex = 0;
-
-  componentGroups.parents.forEach((parent) => {
-    const parentId = `${pageId}_c${componentIndex++}`;
-    const childComponents = componentGroups.children.get(parent.name) || [];
-
-    if (childComponents.length > 0) {
-      // Parent component with children - make it a subgraph
-      mermaidLines.push(`    subgraph ${parentId} ["🧩 ${parent.name}"]`);
-
-      childComponents.forEach((child) => {
-        const childId = `${parentId}_child${componentIndex++}`;
-        mermaidLines.push(`      ${childId}["🧩 ${child.name}"]`);
-        // Add styling for child component (darker blue - more intense)
-        mermaidLines.push(
-          `      style ${childId} fill:#2E5A8A,stroke:#1E3D5C,color:#FFFFFF`
-        );
-      });
-
-      mermaidLines.push('    end');
-
-      // Add styling for parent component (darker blue)
-      mermaidLines.push(
-        `    style ${parentId} fill:#4A90E2,stroke:#2E5A8A,color:#FFFFFF`
-      );
-    } else {
-      // Parent component without children - regular node
-      mermaidLines.push(`    ${parentId}["🧩 ${parent.name}"]`);
-      // Add styling for regular component (light blue)
-      mermaidLines.push(
-        `    style ${parentId} fill:#7BB3F0,stroke:#4A90E2,color:#FFFFFF`
-      );
-    }
-  });
-}
-
-async function initConfig(force?: boolean): Promise<void> {
-  const configPath = path.join(process.cwd(), 'mieru.config.js');
-
-  if (fs.existsSync(configPath) && !force) {
-    throw new Error(
-      'Configuration file already exists. Use --force to overwrite.'
-    );
+    });
   }
 
-  const defaultConfig = `module.exports = {
-  // Include pages in analysis
-  includePages: true,
-  
-  // Include components in analysis
-  includeComponents: true,
-  
-  // Show dependency relationships
-  showDependencies: true,
-  
-  // Maximum dependency depth to analyze
-  maxDepth: 10,
-  
-  // Patterns to exclude from analysis
-  excludePatterns: [
-    'node_modules/**',
-    '.git/**',
-    'dist/**',
-    'build/**',
-    '**/*.test.*',
-    '**/*.spec.*'
-  ],
-  
-  // Output configuration
-  output: {
-    format: 'html',
-    filename: 'mieru-report.html'
-  }
-};
+  markdown += `## 🔧 技術詳細
+
+### フレームワーク情報
+- **検出パターン**: ${framework.pagePatterns?.join(', ') || 'なし'}
+- **コンポーネントパターン**: ${framework.componentPatterns?.join(', ') || 'なし'}
+
+### 解析統計
+- **総ファイル数**: ${totalFiles}
+- **ページ数**: ${pages.length}
+- **総コンポーネント数**: ${pages.reduce((sum: number, page: any) => sum + page.components.length, 0)}
+
+---
+*このレポートは [mieru](https://github.com/your-repo/mieru) によって生成されました。*
 `;
 
-  fs.writeFileSync(configPath, defaultConfig);
-  console.log(`✅ Configuration file created: ${configPath}`);
+  return markdown;
+}
+
+// Mermaid図生成関数
+function generateMermaidDiagram(pages: any[]): string {
+  if (pages.length === 0) {
+    return '';
+  }
+
+  let mermaid = `
+## 🗺️ プロジェクト構造図
+
+\`\`\`mermaid
+flowchart LR
+
+%% ページ構造図
+
+`;
+
+  pages.forEach((page: any, index: number) => {
+    const pageId = `page${index + 1}`;
+    const pageName = page.name.replace(/[^a-zA-Z0-9]/g, '');
+    
+    mermaid += `  subgraph ${pageId} ["📄 ${page.name}"]\n`;
+    
+    if (page.components.length === 0) {
+      mermaid += `    ${pageId}_placeholder[" "]\n`;
+      mermaid += `    style ${pageId}_placeholder fill:transparent,stroke:transparent\n`;
+    } else {
+      page.components.forEach((comp: any, compIndex: number) => {
+        const compId = `${pageId}_c${compIndex}`;
+        const icon = getComponentIcon(comp.type);
+        mermaid += `    ${compId}["${icon} ${comp.name}"]\n`;
+        mermaid += `    style ${compId} fill:#7BB3F0,stroke:#4A90E2,color:#FFFFFF\n`;
+      });
+    }
+    
+    mermaid += `  end\n`;
+    mermaid += `  style ${pageId} fill:#E8F5E8,stroke:#4CAF50,color:#2E7D32\n\n`;
+  });
+
+  mermaid += `\`\`\`
+
+`;
+  
+  return mermaid;
+}
+
+// コンポーネントアイコン取得関数
+function getComponentIcon(type: string): string {
+  switch (type) {
+    case 'component':
+      return '🧩';
+    case 'layout':
+      return '📐';
+    case 'utility':
+      return '🔧';
+    case 'hook':
+      return '🎣';
+    default:
+      return '📦';
+  }
+}
+
+// 設定ファイル初期化関数
+async function initConfig(force?: boolean): Promise<void> {
+  const configPath = path.join(process.cwd(), 'mieru.config.json');
+  
+  // 既存のファイルがある場合の処理
+  try {
+    const { stat } = await import('fs/promises');
+    await stat(configPath);
+    if (!force) {
+      console.log(`⚠️  設定ファイルが既に存在します: ${configPath}`);
+      console.log('上書きする場合は --force オプションを使用してください。');
+      return;
+    }
+  } catch {
+    // ファイルが存在しない場合は続行
+  }
+
+  const config = {
+    framework: 'auto',
+    pagePatterns: [
+      'pages/**/*.{vue,js,jsx,ts,tsx}',
+      'src/pages/**/*.{vue,js,jsx,ts,tsx}',
+      'src/views/**/*.{vue,js,jsx,ts,tsx}',
+      'app/**/*.{vue,js,jsx,ts,tsx}'
+    ],
+    componentPatterns: [
+      'components/**/*.{vue,js,jsx,ts,tsx}',
+      'src/components/**/*.{vue,js,jsx,ts,tsx}'
+    ],
+    excludePatterns: [
+      '**/*.test.{js,jsx,ts,tsx}',
+      '**/*.spec.{js,jsx,ts,tsx}',
+      '**/*.stories.{js,jsx,ts,tsx}',
+      '**/node_modules/**'
+    ],
+    maxDepth: 10,
+    verbose: false
+  };
+
+  await writeFile(configPath, JSON.stringify(config, null, 2));
+  console.log(`✅ 設定ファイルを作成しました: ${configPath}`);
 }
 
 export function runCLI(args?: string[]): void {
@@ -504,18 +328,7 @@ export function runCLI(args?: string[]): void {
   }
 }
 
-// Error handling
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  process.exit(1);
-});
-
-// Run CLI if this file is executed directly
+// Direct execution
 if (import.meta.url === `file://${process.argv[1]}`) {
   runCLI();
 }

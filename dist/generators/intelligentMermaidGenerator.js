@@ -173,42 +173,34 @@ export class IntelligentMermaidGenerator {
                 componentUsageCount.set(component.name, (componentUsageCount.get(component.name) || 0) + 1);
             });
         });
-        // Group components by type
-        const componentsByType = new Map();
+        // Create individual component nodes (not grouped by type)
         allComponents.forEach((componentName) => {
+            const componentId = this.sanitizeId(`comp_${componentName}`);
             const type = componentTypes.get(componentName) || 'component';
-            if (!componentsByType.has(type)) {
-                componentsByType.set(type, []);
-            }
-            componentsByType.get(type).push(componentName);
-        });
-        // Create component type subgraphs
-        componentsByType.forEach((components, type) => {
-            const typeId = this.sanitizeId(`type_${type}`);
+            const usageCount = componentUsageCount.get(componentName) || 0;
+            const label = usageCount > 1 ? `${componentName} (${usageCount})` : componentName;
             const typeIcon = this.getComponentTypeIcon(type);
-            lines.push(`  subgraph ${typeId} ["${typeIcon} ${type.toUpperCase()}"]`);
-            components.forEach((componentName) => {
-                const componentId = this.sanitizeId(`comp_${componentName}`);
-                const usageCount = componentUsageCount.get(componentName) || 0;
-                const label = usageCount > 1 ? `${componentName} (${usageCount})` : componentName;
-                lines.push(`    ${componentId}["${label}"]:::${type}Style`);
-            });
-            lines.push('  end');
+            lines.push(`  ${componentId}["${typeIcon} ${label}"]:::${type}Style`);
         });
         lines.push('');
-        // Create page nodes
+        // Create page subgraphs (only actual pages get subgraphs)
         usages.forEach((page) => {
             const pageId = this.sanitizeId(`page_${page.page}`);
             const pageDisplayName = this.getPageDisplayName(page.page);
-            lines.push(`  ${pageId}["📄 ${pageDisplayName}"]:::pageStyle`);
+            // Create subgraph for each page
+            lines.push(`  subgraph ${pageId} ["📄 ${pageDisplayName}"]`);
+            // Add a placeholder node inside the page subgraph
+            lines.push(`    ${pageId}_content["ページ内容"]:::pageContentStyle`);
+            lines.push('  end');
         });
         lines.push('');
-        // Create relationships
+        // Create relationships from pages to components
         usages.forEach((page) => {
             const pageId = this.sanitizeId(`page_${page.page}`);
+            const pageContentId = `${pageId}_content`;
             page.components.forEach((component) => {
                 const componentId = this.sanitizeId(`comp_${component.name}`);
-                lines.push(`  ${pageId} --> ${componentId}`);
+                lines.push(`  ${pageContentId} --> ${componentId}`);
             });
         });
     }
@@ -296,6 +288,7 @@ export class IntelligentMermaidGenerator {
         lines.push('classDef directiveStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000;');
         lines.push('classDef utilityStyle fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000;');
         lines.push('classDef groupStyle fill:#f5f5f5,stroke:#757575,stroke-width:1px,color:#424242;');
+        lines.push('classDef pageContentStyle fill:transparent,stroke:transparent;');
         return lines;
     }
     generateStyling() {

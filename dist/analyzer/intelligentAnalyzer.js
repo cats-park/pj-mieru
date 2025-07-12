@@ -90,7 +90,15 @@ ${projectInfo.join('\n')}
 `;
         const llmResponse = await this.callLLM(prompt);
         try {
-            const result = JSON.parse(llmResponse);
+            // Clean the response to extract JSON (remove markdown code blocks)
+            let cleanResponse = llmResponse.trim();
+            if (cleanResponse.startsWith('```json')) {
+                cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+            }
+            else if (cleanResponse.startsWith('```')) {
+                cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
+            }
+            const result = JSON.parse(cleanResponse);
             this.log(`📋 判定根拠: ${result.reasoning || 'なし'}`);
             return result;
         }
@@ -206,7 +214,31 @@ ${projectInfo.join('\n')}
         return listing.join('\n');
     }
     async identifyRelevantFiles(framework, structure) {
-        this.log('📄 関連ファイルを特定中...');
+        this.log('📄 スマートファイル特定を開始...');
+        // Use the new SmartFileSelector for more precise file selection
+        const { SmartFileSelector } = await import('./smartFileSelector.js');
+        const selector = new SmartFileSelector(this.projectPath);
+        try {
+            const selectionResult = await selector.selectRelevantFiles(framework, structure, {
+                maxFiles: 25,
+                prioritizeRecentFiles: true,
+                includeConfigFiles: true
+            });
+            this.log(`📋 スマート選択結果: ${JSON.stringify(selectionResult.categorizedFiles, null, 2)}`);
+            this.log(`🎯 選択信頼度: ${selectionResult.confidence}%`);
+            // Log selection reasoning for key files
+            Object.entries(selectionResult.selectionReasons).slice(0, 5).forEach(([file, reason]) => {
+                this.log(`📝 ${file}: ${reason}`);
+            });
+            return selectionResult.selectedFiles;
+        }
+        catch (error) {
+            this.log(`⚠️ スマートファイル選択に失敗、フォールバックを使用: ${error}`);
+            return this.identifyRelevantFilesFallback(framework, structure);
+        }
+    }
+    async identifyRelevantFilesFallback(framework, structure) {
+        this.log('📄 フォールバック: 従来のファイル特定を実行...');
         const prompt = `
 あなたは${framework.framework}プロジェクトの構造解析の専門家です。以下のプロジェクト構造を分析して、ページとコンポーネントの関係を分析するために必要なファイルを特定してください。
 
@@ -269,6 +301,8 @@ ${structure}
     async validateFileExistence(files) {
         const { access } = await import('fs/promises');
         const validFiles = [];
+        const invalidFiles = [];
+        this.log(`🔍 ${files.length}個のファイルの存在確認を開始...`);
         for (const file of files) {
             try {
                 const filePath = path.join(this.projectPath, file);
@@ -276,10 +310,60 @@ ${structure}
                 validFiles.push(file);
             }
             catch (error) {
-                this.log(`⚠️ ファイル不存在: ${file}`);
+                invalidFiles.push(file);
+                this.log(`❌ ファイル不存在: ${file}`);
+            }
+        }
+        this.log(`✅ ${validFiles.length}個のファイルが存在確認済み`);
+        this.log(`❌ ${invalidFiles.length}個のファイルが存在しません`);
+        if (invalidFiles.length > 0) {
+            this.log(`📋 存在しないファイル一覧:`);
+            invalidFiles.forEach(file => this.log(`  - ${file}`));
+            // 代替案の提案
+            this.log(`🔍 代替案を検索中...`);
+            const alternatives = await this.suggestAlternatives(invalidFiles);
+            if (alternatives.length > 0) {
+                this.log(`📝 代替案候補:`);
+                alternatives.forEach(alt => this.log(`  - ${alt}`));
+                const validAlternatives = await this.validateFileExistence(alternatives);
+                validFiles.push(...validAlternatives);
             }
         }
         return validFiles;
+    }
+    /**
+     * 存在しないファイルの代替案を提案
+     */
+    async suggestAlternatives(invalidFiles) {
+        const alternatives = [];
+        for (const file of invalidFiles) {
+            const baseName = path.basename(file, path.extname(file));
+            const dirName = path.dirname(file);
+            // 拡張子違いを試す
+            const extensions = ['.js', '.jsx', '.ts', '.tsx', '.vue'];
+            for (const ext of extensions) {
+                if (!file.endsWith(ext)) {
+                    alternatives.push(path.join(dirName, baseName + ext));
+                }
+            }
+            // ディレクトリ違いを試す
+            if (dirName.includes('src')) {
+                alternatives.push(file.replace('src/', ''));
+            }
+            else {
+                alternatives.push(`src/${file}`);
+            }
+            // 大文字小文字違いを試す
+            const upperBaseName = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+            const lowerBaseName = baseName.charAt(0).toLowerCase() + baseName.slice(1);
+            if (baseName !== upperBaseName) {
+                alternatives.push(path.join(dirName, upperBaseName + path.extname(file)));
+            }
+            if (baseName !== lowerBaseName) {
+                alternatives.push(path.join(dirName, lowerBaseName + path.extname(file)));
+            }
+        }
+        return [...new Set(alternatives)];
     }
     async analyzePageComponentUsages(framework, files) {
         this.log('🔍 ページ-コンポーネント関係を解析中...');

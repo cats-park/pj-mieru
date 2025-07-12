@@ -8,19 +8,20 @@ Advanced component visualization tool for Vue.js, React, Nuxt.js, and Next.js pr
 
 **独自のネストしたsubgraph構造**により、コンポーネント内で使用される子コンポーネントまで階層的に表現。直感的なカラーテーマで、ページ（緑）とコンポーネント（青系濃淡）を区別し、プロジェクトの構造を一目で理解できます。
 
-LLMを活用したインテリジェント解析により、従来のツールでは実現できない深いプロジェクト構造の理解を提供します。
+プロジェクト名を自動抽出してファイル名に使用し、単一のMarkdownファイルで包括的な解析結果を提供します。
 
 ### ✨ Features
 
-- 🧠 **AI-Powered Analysis** - LLMを活用したフレームワーク自動検出とコンポーネント分析
+- 🎯 **Smart Project Name Extraction** - パスから自動的にプロジェクト名を抽出してファイル名に使用
 - 📊 **Nested Component Visualization** - ページ内のコンポーネント階層を美しいsubgraph構造で表現
 - 🎨 **Color-Coded Architecture** - ページ（緑）・コンポーネント（青）・ネスト構造（濃淡）の直感的な色分け
 - 🎯 **Multi-Framework Support** - Vue.js、React、Nuxt.js、Next.jsに対応
 - 🌐 **GitHub Integration** - ローカルプロジェクトとGitHubリポジトリ両方に対応
-- 📋 **Interactive Mermaid Diagrams** - 実用的で見やすいMermaid図を含むMarkdownレポート生成
+- 📋 **Single Markdown Output** - 統一されたMarkdownレポートで簡潔な結果表示
 - 🔍 **Recursive Dependency Analysis** - 最大3階層のコンポーネント依存関係を詳細分析
 - ⚡ **Fast Processing** - TypeScript AST解析による高速処理
 - 🧹 **Auto Cleanup** - 一時ファイルの自動クリーンアップ
+- 🧠 **Optional AI Analysis** - LLM機能はオプション（APIキー不要でも動作）
 
 ### 🚀 Supported Frameworks
 
@@ -45,54 +46,84 @@ npm run build
 
 ## 🔧 Usage
 
+### Basic Usage
+
+```bash
+# ページ構造解析（デフォルト）
+npm run cli analyze ./your-project
+
+# 出力ファイル: analysis-your-project.md
+```
+
 ### ローカルプロジェクト解析
 
 ```bash
-# ページ構造解析（デフォルトでLLMインテリジェント解析が有効）
-mieru analyze ./your-project
+# 基本的な解析
+npm run cli analyze /path/to/my-awesome-project
+# → analysis-my-awesome-project.md が生成される
 
-# ページ-コンポーネント関係詳細解析
-mieru analyze ./your-project --format page-component
+# 特定のディレクトリ
+npm run cli analyze /Users/username/projects/vue-todo-app
+# → analysis-vue-todo-app.md が生成される
 ```
-
-> **Note:**
-> Project MieruはデフォルトでLLM（AI）ベースのインテリジェント解析を行います。従来の `--format intelligent` オプションは不要です。
 
 ### GitHub リポジトリ解析
 
 ```bash
-# GitHub リポジトリのページ構造解析（デフォルトでLLM解析）
-mieru analyze https://github.com/username/repository
+# GitHub リポジトリ解析
+npm run cli analyze https://github.com/username/repository
+# → analysis-repository.md が生成される
 
-# GitHub リポジトリの特定ブランチ解析
-mieru analyze https://github.com/username/repository/tree/develop
+# 特定ブランチ
+npm run cli analyze https://github.com/username/repository/tree/develop
+# → analysis-repository.md が生成される
 
-# GitHub リポジトリの特定ディレクトリ解析
-mieru analyze https://github.com/username/repository/tree/main/frontend
+# サブディレクトリ
+npm run cli analyze https://github.com/username/repository/tree/main/frontend
+# → analysis-repository.md が生成される
 ```
+
+### 出力ファイル名について
+
+Project Mieruは入力パスから自動的にプロジェクト名を抽出し、`analysis-{プロジェクト名}.md`形式でファイルを生成します：
+
+**例：**
+- `/path/to/my-project` → `analysis-my-project.md`
+- `https://github.com/user/awesome-app` → `analysis-awesome-app.md`
+- `/Users/dev/projects/vue-dashboard` → `analysis-vue-dashboard.md`
 
 ### Advanced Options
 
 ```bash
-# 出力ファイル名を指定
-mieru analyze ./project --output my-analysis
-mieru analyze https://github.com/user/repo --output github-analysis
+# LLMベースのインテリジェント解析（APIキーが必要）
+npm run cli analyze ./project --format intelligent
+
+# ページ-コンポーネント関係詳細解析（APIキーが必要）
+npm run cli analyze ./project --format page-component
+
+# 全解析を実行（複数のファイル出力）
+npm run cli analyze ./project --format all
 
 # ディレクトリグループ化
-mieru analyze ./project --group-by-directory
+npm run cli analyze ./project --group-by-directory
 
 # 使用コンテキスト表示
-mieru analyze ./project --show-usage-context
+npm run cli analyze ./project --show-usage-context
 
 # シンプルな図表生成
-mieru analyze ./project --diagram-type simple
-
-# 明示的に従来形式で出力したい場合
-mieru analyze ./project --format page-component
+npm run cli analyze ./project --diagram-type simple
 ```
 
-> **補足:**
-> `--format` オプションは、`page-component` など従来形式での出力を明示したい場合にのみ使用してください。
+### 解析形式の選択
+
+| 形式 | 説明 | 出力ファイル | APIキー |
+|------|------|-------------|---------|
+| **デフォルト** | ページ構造解析 | `analysis-{project}.md` | 不要 |
+| `--format intelligent` | LLMベース解析 | `analysis-{project}.md` | 必要 |
+| `--format page-component` | ページ-コンポーネント詳細解析 | `analysis-{project}.md` | 必要 |
+| `--format all` | 全解析実行 | 複数ファイル | 一部必要 |
+
+> **Note:** デフォルトの解析はAPIキー不要で動作し、技術スタック検出とページ構造の視覚化を行います。
 
 ## 🎨 Visual Features
 
@@ -123,13 +154,13 @@ end
 
 ```bash
 # 設定ファイルを生成
-mieru init
+npm run cli init
 
 # 既存設定を上書き
-mieru init --force
+npm run cli init --force
 ```
 
-## 🔑 LLM Integration
+## 🔑 LLM Integration (Optional)
 
 ### 🧠 **サポートされるLLMプロバイダー**
 
@@ -163,6 +194,86 @@ PERPLEXITY_API_KEY=pplx-your_perplexity_key_here
 
 ## 📊 Output Formats
 
+### 📋 **Page Structure Report (デフォルト)**
+
+デフォルトの出力形式で、APIキー不要で動作します：
+
+- **技術スタック解析**: 言語・フレームワーク・ビルドツール・パッケージマネージャーの自動検出
+- **ネストしたコンポーネント階層**: subgraph構造でコンポーネントの親子関係を視覚化（最大3階層）
+- **カラーコード図表**: 緑（ページ）・青系（コンポーネント）の直感的な色分け
+- **統一されたsubgraph**: 空のページも統一感のあるスタイルで表示
+- **詳細統計情報**: ページ数・コンポーネント数・解析時間・技術構成
+- **GitHub統合**: リポジトリURL、ブランチ、サブディレクトリ対応
+
+**出力例**:
+```
+analysis-my-project.md  # 単一ファイル出力
+```
+
+**レポート内容例**:
+
+```markdown
+# ページ構造解析レポート
+
+**生成日時**: 2025/7/12 8:30:45
+**参照元**: `/path/to/my-project`
+
+## 🚀 技術スタック
+
+### 主要技術
+- **言語**: TypeScript
+- **フレームワーク**: Vue.js
+- **パッケージマネージャー**: npm
+
+### 言語構成
+- **TypeScript**: 75% (45ファイル)
+- **JavaScript**: 25% (15ファイル)
+
+### フレームワーク/ライブラリ
+- **Vue.js** v^3.0.0 (信頼度: high)
+- **Nuxt.js** v^3.0.0 (信頼度: high)
+
+## 🗺️ プロジェクト構造図
+
+```mermaid
+flowchart LR
+  subgraph page1 ["📄 pages/index.vue"]
+    subgraph comp1 ["🧩 MainLayout"]
+      child1["🧩 Header"]
+      child2["🧩 Navigation"]
+    end
+    comp2["🧩 Footer"]
+  end
+```
+
+## 📊 統計情報
+
+- **総ページ数**: 5
+- **総コンポーネント数**: 12
+- **解析時間**: 1,234ms
+```
+
+### 🧠 **Intelligent Analysis Report** (オプション)
+
+`--format intelligent`使用時のLLM強化レポート：
+
+- **AI駆動フレームワーク検出**: OpenAI/Anthropic/Perplexity統合
+- **コンポーネントタイプ分類**: 自動カテゴライゼーション
+- **使用パターン分析**: アーキテクチャパターン識別
+- **詳細ログ付き解析**: トレーサブルなAI判定プロセス
+- **信頼度スコア**: AI分析結果の確度評価
+
+### 📊 **Page-Component Analysis Report** (オプション)
+
+`--format page-component`使用時の詳細解析レポート：
+
+- **ページごとの詳細コンポーネント解析**: 完全な依存関係マッピング
+- **使用コンテキスト情報**: import文、props、イベント解析
+- **インタラクティブな関係図**: クリック可能なMermaid図表
+- **再帰的依存解析**: 子コンポーネントの子コンポーネントまで追跡
+
+## 🛠️ Development
+
 ### 🏗️ **アーキテクチャ概要**
 
 ```mermaid
@@ -181,77 +292,17 @@ graph TD
     J --> K
 ```
 
-### 📋 **Page Structure Report**
-
-- **技術スタック解析**: 言語・フレームワーク・ビルドツール・パッケージマネージャーの自動検出
-- **ネストしたコンポーネント階層**: subgraph構造でコンポーネントの親子関係を視覚化（最大3階層）
-- **カラーコード図表**: 緑（ページ）・青系（コンポーネント）の直感的な色分け
-- **統一されたsubgraph**: 空のページも統一感のあるスタイルで表示
-- **詳細統計情報**: ページ数・コンポーネント数・解析時間・技術構成
-- **GitHub統合**: リポジトリURL、ブランチ、サブディレクトリ対応
-
-**レポート例**:
-
-```markdown
-# ページ構造解析レポート
-
-**生成日時**: 2025/6/13 9:34:29
-**参照元**: [https://github.com/username/repository](https://github.com/username/repository)
-
-## 🚀 技術スタック
-
-### 主要技術
-- **言語**: JavaScript
-- **フレームワーク**: React
-- **パッケージマネージャー**: npm
-
-### 言語構成
-- **JavaScript**: 85% (120ファイル)
-- **TypeScript**: 15% (21ファイル)
-
-### フレームワーク/ライブラリ
-- **React** v^18.0.0 (信頼度: high)
-- **Next.js** v^13.0.0 (信頼度: high)
-
-## 🗺️ プロジェクト構造図
-
-```mermaid
-subgraph page1 ["📄 pages/index.jsx"]
-  subgraph comp1 ["🧩 SideBar"]
-    child1["🧩 SearchForm"]
-  end
-  comp2["🧩 ContactButton"]
-end
-```
-
-### 🧠 **Intelligent Analysis Report** (LLM強化)
-
-- **AI駆動フレームワーク検出**: OpenAI/Anthropic/Perplexity統合
-- **コンポーネントタイプ分類**: 自動カテゴライゼーション
-- **使用パターン分析**: アーキテクチャパターン識別
-- **詳細ログ付き解析**: トレーサブルなAI判定プロセス
-- **信頼度スコア**: AI分析結果の確度評価
-
-### 📊 **Page-Component Analysis Report**
-
-- **ページごとの詳細コンポーネント解析**: 完全な依存関係マッピング
-- **使用コンテキスト情報**: import文、props、イベント解析
-- **インタラクティブな関係図**: クリック可能なMermaid図表
-- **再帰的依存解析**: 子コンポーネントの子コンポーネントまで追跡
-
-## 🛠️ Development
-
 ### 💻 **開発コマンド**
 
 ```bash
 # プロジェクトビルド
 npm run build
 
-# 開発モーCLI実行
-npm run cli -- analyze ./test-project
+# 開発モードでCLI実行
+npm run cli analyze ./test-project
 
 # ビルド後CLI実行
-npm run cli:build -- analyze ./test-project
+npm run cli:build analyze ./test-project
 
 # コード品質チェック
 npm run lint
@@ -263,20 +314,23 @@ npm run format
 tsc --noEmit
 ```
 
-### 🧪 **デバッグ・テストコマンド**
+### 🧪 **テスト・デバッグコマンド**
 
 ```bash
 # ローカルプロジェクトテスト
-npm run cli -- analyze ./examples/vue-project
+npm run cli analyze ./examples/vue-project
 
 # GitHubリポジトリテスト
-npm run cli -- analyze https://github.com/vuejs/vue-router
+npm run cli analyze https://github.com/vuejs/vue-router
 
 # LLM解析テスト (要APIキー)
-npm run cli -- analyze ./examples/react-project --format intelligent
+npm run cli analyze ./examples/react-project --format intelligent
 
 # 詳細オプションテスト
-npm run cli -- analyze ./project --show-usage-context --group-by-directory
+npm run cli analyze ./project --show-usage-context --group-by-directory
+
+# 全解析テスト
+npm run cli analyze ./project --format all
 ```
 
 ## 📁 Project Structure
@@ -349,10 +403,11 @@ project-mieru/
 
 - **総ファイル数**: 20+ TypeScriptファイル
 - **コード行数**: 4,000+ 行
-- **成熟度**: 🟡 **Beta/MVP** - コア機能完成、本格運用向け改善が必要
+- **成熟度**: 🟢 **Production Ready** - 単一ファイル出力、プロジェクト名自動抽出など本格運用可能
 - **依存関係**: 6個の主要依存関係 (Babel, Vue Compiler, Commander等)
 - **対応Node.js**: >=18.0.0
 - **モジュール形式**: ESM (ES Modules)
+- **デフォルト動作**: APIキー不要、単一MDファイル出力、プロジェクト名自動抽出
 
 ## 🤝 Contributing
 

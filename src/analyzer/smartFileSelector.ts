@@ -46,28 +46,43 @@ export class SmartFileSelector {
   ): Promise<FileSelectionResult> {
     this.log('🎯 スマートファイル選択を開始...');
 
-    // Step 1: フレームワーク固有のファイルパターンを生成
-    const frameworkPatterns = this.generateFrameworkSpecificPatterns(framework);
-    
-    // Step 2: プロジェクト構造から候補ファイルを抽出
-    const candidateFiles = this.extractCandidateFiles(projectStructure, frameworkPatterns);
-    
-    // Step 3: LLMを使用してファイルの重要度を評価
-    const evaluatedFiles = await this.evaluateFileImportance(
-      framework,
-      candidateFiles,
-      options
-    );
-    
-    // Step 4: ファイルを選択・分類
-    const result = await this.selectAndCategorizeFiles(
-      framework,
-      evaluatedFiles,
-      options
-    );
+    try {
+      // Step 1: フレームワーク固有のファイルパターンを生成
+      const frameworkPatterns = this.generateFrameworkSpecificPatterns(framework);
+      
+      // Step 2: プロジェクト構造から候補ファイルを抽出
+      const candidateFiles = this.extractCandidateFiles(projectStructure, frameworkPatterns);
+      
+      // Step 3: LLMを使用してファイルの重要度を評価
+      const evaluatedFiles = await this.evaluateFileImportance(
+        framework,
+        candidateFiles,
+        options
+      );
+      
+      // Step 4: ファイルを選択・分類
+      const result = await this.selectAndCategorizeFiles(
+        framework,
+        evaluatedFiles,
+        options
+      );
 
-    this.log(`✅ ${result.selectedFiles.length}個のファイルを選択完了`);
-    return result;
+      // Step 5: 結果の検証とフォールバック実行
+      if (result.selectedFiles.length === 0 || result.confidence < 30) {
+        this.log('⚠️ スマートファイル選択の結果が不十分です。フォールバック機能を実行...');
+        return await this.fallbackFileSelection(framework, projectStructure, options);
+      }
+
+      this.log(`✅ ${result.selectedFiles.length}個のファイルを選択完了`);
+      this.log(`📋 スマート選択結果: ${JSON.stringify(result.categorizedFiles)}`);
+      this.log(`🎯 選択信頼度: ${result.confidence}%`);
+      
+      return result;
+    } catch (error) {
+      this.log(`❌ スマートファイル選択に失敗: ${error}`);
+      this.log('🔄 フォールバック機能を実行...');
+      return await this.fallbackFileSelection(framework, projectStructure, options);
+    }
   }
 
   /**
@@ -384,10 +399,256 @@ ${candidateFiles.map((file, index) => `${index + 1}. ${file}`).join('\n')}
   }
 
   /**
+   * フォールバック機能: 従来の方法でファイルを検索
+   */
+  private async fallbackFileSelection(
+    framework: FrameworkDetectionResult,
+    projectStructure: string,
+    options: SmartFileSelectorOptions = {}
+  ): Promise<FileSelectionResult> {
+    this.log('🔄 フォールバック機能を実行中...');
+    
+    // Step 1: プロジェクト構造の分析
+    const projectInfo = this.analyzeProjectStructure(projectStructure);
+    
+    // Step 2: 基本的なファイル検索
+    const basicFiles = this.findBasicFiles(projectStructure, projectInfo);
+    
+    // Step 3: 実際に存在するファイルを検索
+    const existingFiles = await this.findExistingFiles(projectStructure);
+    
+    // Step 4: 両方の結果を統合
+    const allFiles = [...new Set([...basicFiles, ...existingFiles])];
+    
+    // Step 5: ファイル存在確認
+    const validFiles = await this.validateFileExistence(allFiles);
+    
+    // Step 6: 基本的な分類
+    const categorizedFiles = this.categorizeBasicFiles(validFiles, projectInfo);
+    
+    // Step 7: 選択理由の生成
+    const selectionReasons: Record<string, string> = {};
+    validFiles.forEach(file => {
+      selectionReasons[file] = 'フォールバック機能による基本的な選択';
+    });
+    
+    const result = {
+      selectedFiles: validFiles,
+      categorizedFiles,
+      selectionReasons,
+      confidence: validFiles.length > 0 ? 60 : 0
+    };
+    
+    this.log(`🔄 フォールバック選択完了: ${validFiles.length}個のファイル`);
+    this.log(`📋 フォールバック結果: ${JSON.stringify(categorizedFiles)}`);
+    
+    return result;
+  }
+
+  /**
+   * プロジェクト構造を分析してメタデータを取得
+   */
+  private analyzeProjectStructure(projectStructure: string): {
+    hasSourceDir: boolean;
+    hasAppDir: boolean;
+    hasPagesDir: boolean;
+    hasComponentsDir: boolean;
+    rootDirectory: string;
+    primaryExtensions: string[];
+    detectedFramework: string;
+  } {
+    const lines = projectStructure.split('\n');
+    const structure = {
+      hasSourceDir: false,
+      hasAppDir: false,
+      hasPagesDir: false,
+      hasComponentsDir: false,
+      rootDirectory: 'src',
+      primaryExtensions: [] as string[],
+      detectedFramework: 'unknown'
+    };
+
+    // ディレクトリ検出
+    for (const line of lines) {
+      const cleanLine = line.toLowerCase().trim();
+      if (cleanLine.includes('src/') || cleanLine.endsWith('src')) {
+        structure.hasSourceDir = true;
+      }
+      if (cleanLine.includes('app/') || cleanLine.endsWith('app')) {
+        structure.hasAppDir = true;
+      }
+      if (cleanLine.includes('pages/') || cleanLine.endsWith('pages')) {
+        structure.hasPagesDir = true;
+      }
+      if (cleanLine.includes('components/') || cleanLine.endsWith('components')) {
+        structure.hasComponentsDir = true;
+      }
+    }
+
+    // ルートディレクトリの決定
+    if (structure.hasSourceDir) {
+      structure.rootDirectory = 'src';
+    } else if (structure.hasAppDir) {
+      structure.rootDirectory = 'app';
+    } else {
+      structure.rootDirectory = '.';
+    }
+
+    // 拡張子の検出
+    const extensionCount: Record<string, number> = { '.tsx': 0, '.ts': 0, '.jsx': 0, '.js': 0, '.vue': 0 };
+    for (const line of lines) {
+      Object.keys(extensionCount).forEach(ext => {
+        if (line.endsWith(ext)) {
+          extensionCount[ext]++;
+        }
+      });
+    }
+
+    structure.primaryExtensions = Object.entries(extensionCount)
+      .filter(([, count]) => count > 0)
+      .sort(([, a], [, b]) => b - a)
+      .map(([ext]) => ext);
+
+    // フレームワーク推定
+    if (structure.primaryExtensions.includes('.vue')) {
+      structure.detectedFramework = 'Vue';
+    } else if (structure.primaryExtensions.includes('.tsx') || structure.primaryExtensions.includes('.jsx')) {
+      structure.detectedFramework = 'React';
+    }
+
+    this.log(`📊 プロジェクト構造分析結果: ${JSON.stringify(structure)}`);
+    return structure;
+  }
+
+  /**
+   * 基本的なファイル検索
+   */
+  private findBasicFiles(
+    projectStructure: string,
+    projectInfo: { hasSourceDir: boolean; hasAppDir: boolean; hasPagesDir: boolean; hasComponentsDir: boolean; rootDirectory: string; primaryExtensions: string[]; detectedFramework: string; }
+  ): string[] {
+    const lines = projectStructure.split('\n');
+    const basicFiles: string[] = [];
+
+    // 重要なファイルパターンを定義
+    const importantPatterns = [
+      // Entry points
+      'App.tsx', 'App.jsx', 'App.ts', 'App.js', 'App.vue',
+      'index.tsx', 'index.jsx', 'index.ts', 'index.js', 'index.vue',
+      'main.tsx', 'main.jsx', 'main.ts', 'main.js', 'main.vue',
+      
+      // Common component names
+      'Header.tsx', 'Header.jsx', 'Header.vue',
+      'Footer.tsx', 'Footer.jsx', 'Footer.vue',
+      'Layout.tsx', 'Layout.jsx', 'Layout.vue',
+      'Home.tsx', 'Home.jsx', 'Home.vue',
+      'Product.tsx', 'Product.jsx', 'Product.vue',
+      'Cart.tsx', 'Cart.jsx', 'Cart.vue',
+      'Login.tsx', 'Login.jsx', 'Login.vue',
+      'Checkout.tsx', 'Checkout.jsx', 'Checkout.vue',
+      
+      // Next.js specific
+      'page.tsx', 'page.jsx', 'page.ts', 'page.js',
+      'layout.tsx', 'layout.jsx', 'layout.ts', 'layout.js',
+      'loading.tsx', 'loading.jsx', 'error.tsx', 'error.jsx',
+      'not-found.tsx', 'not-found.jsx'
+    ];
+
+    for (const line of lines) {
+      const cleanLine = line.replace(/^[├└│\s]*/, '').trim();
+      
+      // 重要なファイルパターンをチェック
+      if (importantPatterns.some(pattern => cleanLine.endsWith(pattern))) {
+        // パスを構築
+        let filePath = cleanLine;
+        if (projectInfo.hasSourceDir && !cleanLine.includes('src/')) {
+          filePath = `src/${cleanLine}`;
+        } else if (projectInfo.hasAppDir && !cleanLine.includes('app/')) {
+          filePath = `app/${cleanLine}`;
+        }
+        basicFiles.push(filePath);
+      }
+      
+      // 拡張子による検索
+      if (projectInfo.primaryExtensions.some(ext => cleanLine.endsWith(ext))) {
+        // 重要なディレクトリ内のファイル
+        if (line.includes('components/') || line.includes('pages/') || 
+            line.includes('src/') || line.includes('app/')) {
+          
+          let filePath = cleanLine;
+          // tree構造からの相対パス構築
+          const pathParts = line.split('/').filter(part => part.trim() && !part.match(/^[├└│\s]*$/));
+          if (pathParts.length > 1) {
+            filePath = pathParts.join('/');
+          }
+          
+          basicFiles.push(filePath);
+        }
+      }
+    }
+
+    this.log(`🔍 基本検索で${basicFiles.length}個のファイルを発見`);
+    return [...new Set(basicFiles)]; // 重複除去
+  }
+
+  /**
+   * 基本的なファイル分類
+   */
+  private categorizeBasicFiles(
+    files: string[],
+    projectInfo: { hasSourceDir: boolean; hasAppDir: boolean; hasPagesDir: boolean; hasComponentsDir: boolean; rootDirectory: string; primaryExtensions: string[]; detectedFramework: string; }
+  ): { pages: string[]; components: string[]; layouts: string[]; utilities: string[]; config: string[]; } {
+    const categorized = {
+      pages: [] as string[],
+      components: [] as string[],
+      layouts: [] as string[],
+      utilities: [] as string[],
+      config: [] as string[]
+    };
+
+    for (const file of files) {
+      const lowerFile = file.toLowerCase();
+      
+      // ページファイルの判定
+      if (lowerFile.includes('/pages/') || lowerFile.includes('/app/') || 
+          lowerFile.endsWith('page.tsx') || lowerFile.endsWith('page.jsx') ||
+          lowerFile.includes('home') || lowerFile.includes('product') ||
+          lowerFile.includes('cart') || lowerFile.includes('checkout')) {
+        categorized.pages.push(file);
+      }
+      // レイアウトファイルの判定
+      else if (lowerFile.includes('layout') || lowerFile.includes('template')) {
+        categorized.layouts.push(file);
+      }
+      // コンポーネントファイルの判定
+      else if (lowerFile.includes('/components/') || lowerFile.includes('component') ||
+               lowerFile.includes('header') || lowerFile.includes('footer') ||
+               lowerFile.includes('nav') || lowerFile.includes('button') ||
+               lowerFile.includes('card') || lowerFile.includes('form')) {
+        categorized.components.push(file);
+      }
+      // 設定ファイルの判定
+      else if (lowerFile.includes('config') || lowerFile.includes('settings') ||
+               lowerFile.includes('.config.') || lowerFile.includes('constants')) {
+        categorized.config.push(file);
+      }
+      // その他はユーティリティとして分類
+      else {
+        categorized.utilities.push(file);
+      }
+    }
+
+    return categorized;
+  }
+
+  /**
    * ファイル存在確認
    */
   private async validateFileExistence(files: string[]): Promise<string[]> {
     const validFiles: string[] = [];
+    const nonExistentFiles: string[] = [];
+    
+    this.log(`🔍 ${files.length}個のファイルの存在確認を開始...`);
     
     for (const file of files) {
       try {
@@ -395,11 +656,109 @@ ${candidateFiles.map((file, index) => `${index + 1}. ${file}`).join('\n')}
         await access(filePath);
         validFiles.push(file);
       } catch {
-        this.log(`⚠️ ファイル不存在: ${file}`);
+        nonExistentFiles.push(file);
+      }
+    }
+    
+    this.log(`✅ ${validFiles.length}個のファイルが存在確認済み`);
+    this.log(`❌ ${nonExistentFiles.length}個のファイルが存在しません`);
+    
+    if (nonExistentFiles.length > 0) {
+      this.log(`📋 存在しないファイル: ${nonExistentFiles.slice(0, 5).join(', ')}${nonExistentFiles.length > 5 ? '...' : ''}`);
+      
+      // 代替案を提案
+      const alternatives = await this.suggestFileAlternatives(nonExistentFiles);
+      if (alternatives.length > 0) {
+        this.log(`🔍 代替案を発見: ${alternatives.length}個のファイル`);
+        const validAlternatives = await this.validateFileExistence(alternatives);
+        validFiles.push(...validAlternatives);
       }
     }
     
     return validFiles;
+  }
+
+  /**
+   * 存在しないファイルの代替案を提案
+   */
+  private async suggestFileAlternatives(nonExistentFiles: string[]): Promise<string[]> {
+    const alternatives: string[] = [];
+    
+    for (const file of nonExistentFiles) {
+      const basename = path.basename(file, path.extname(file));
+      const dirname = path.dirname(file);
+      const ext = path.extname(file);
+      
+      // 代替の拡張子を試す
+      const alternativeExtensions = ['.tsx', '.ts', '.jsx', '.js', '.vue'];
+      for (const altExt of alternativeExtensions) {
+        if (altExt !== ext) {
+          const altFile = path.join(dirname, basename + altExt);
+          if (!alternatives.includes(altFile)) {
+            alternatives.push(altFile);
+          }
+        }
+      }
+      
+      // 代替のディレクトリを試す
+      const alternativeDirectories = ['src', 'app', 'components', 'pages', 'views'];
+      for (const altDir of alternativeDirectories) {
+        const altFile = path.join(altDir, path.basename(file));
+        if (!alternatives.includes(altFile)) {
+          alternatives.push(altFile);
+        }
+      }
+      
+      // より具体的な代替案
+      if (basename.toLowerCase().includes('app')) {
+        alternatives.push('src/App.tsx', 'src/App.jsx', 'src/App.js', 'App.tsx', 'App.jsx');
+      }
+      if (basename.toLowerCase().includes('index')) {
+        alternatives.push('src/index.tsx', 'src/index.jsx', 'src/index.js', 'index.tsx', 'index.jsx');
+      }
+      if (basename.toLowerCase().includes('main')) {
+        alternatives.push('src/main.tsx', 'src/main.jsx', 'src/main.js', 'main.tsx', 'main.jsx');
+      }
+    }
+    
+    return [...new Set(alternatives)]; // 重複除去
+  }
+
+  /**
+   * プロジェクト全体から実際に存在するファイルを検索
+   */
+  private async findExistingFiles(projectStructure: string): Promise<string[]> {
+    const lines = projectStructure.split('\n');
+    const existingFiles: string[] = [];
+    
+    for (const line of lines) {
+      const cleanLine = line.replace(/^[├└│\s]*/, '').trim();
+      
+      // ファイル拡張子をチェック
+      if (cleanLine.match(/\.(tsx?|jsx?|vue)$/)) {
+        // 複数のパス候補を試す
+        const pathCandidates = [
+          cleanLine,
+          `src/${cleanLine}`,
+          `app/${cleanLine}`,
+          `components/${cleanLine}`,
+          `pages/${cleanLine}`
+        ];
+        
+        for (const candidate of pathCandidates) {
+          try {
+            const filePath = path.join(this.projectPath, candidate);
+            await access(filePath);
+            existingFiles.push(candidate);
+            break; // 最初に見つかったパスを使用
+          } catch {
+            // ファイルが存在しない場合は次の候補を試す
+          }
+        }
+      }
+    }
+    
+    return [...new Set(existingFiles)]; // 重複除去
   }
 
   /**

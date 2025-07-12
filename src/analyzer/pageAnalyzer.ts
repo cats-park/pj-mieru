@@ -8,17 +8,96 @@ import {
 import { ScannedFile } from '../types/scanner.js';
 import { AstAnalysisResult, ImportInfo, ComponentUsage } from '../types/ast.js';
 import { VueSfcAnalysisResult } from '../types/vue.js';
+import { ReactRouterAnalyzer, ReactRouterAnalysisResult } from './reactRouterAnalyzer.js';
 import path from 'path';
 import fs from 'fs';
 
 export class PageAnalyzer {
+  private projectPath: string;
+  
+  constructor(projectPath: string = process.cwd()) {
+    this.projectPath = projectPath;
+  }
+
   private pagePatterns = [
+    // Traditional patterns
     /\/pages\//,
     /\/views\//,
     /\/routes\//,
     /\/screens\//,
+    
+    // Next.js patterns
+    /\/app\//,
     /page\.(vue|jsx?|tsx?)$/,
+    /layout\.(vue|jsx?|tsx?)$/,
+    /loading\.(vue|jsx?|tsx?)$/,
+    /error\.(vue|jsx?|tsx?)$/,
+    /not-found\.(vue|jsx?|tsx?)$/,
+    
+    // Common entry points
     /index\.(vue|jsx?|tsx?)$/,
+    /main\.(vue|jsx?|tsx?)$/,
+    /App\.(vue|jsx?|tsx?)$/,
+    
+    // React patterns
+    /\/src\/App\./,
+    /\/src\/index\./,
+    /\/src\/main\./,
+    /\/src\/pages\//,
+    /\/src\/views\//,
+    /\/src\/components\/pages\//,
+    /\/src\/components\/views\//,
+    
+    // Vue patterns
+    /\/src\/views\//,
+    /\/src\/pages\//,
+    /\/src\/App\./,
+    /\/src\/main\./,
+    
+    // Nuxt.js patterns
+    /\/layouts\//,
+    /\/middleware\//,
+    /\/plugins\//,
+    
+    // Common component directory patterns that might contain pages
+    /\/containers\//,
+    /\/templates\//,
+    /\/features\//,
+    /\/modules\//,
+    
+    // Amazon clone tutorial specific patterns
+    /\/public\//,
+    /\/build\//,
+    /\/dist\//,
+    
+    // Generic patterns for any directory structure
+    /Home\.(vue|jsx?|tsx?)$/,
+    /Product\.(vue|jsx?|tsx?)$/,
+    /Cart\.(vue|jsx?|tsx?)$/,
+    /Login\.(vue|jsx?|tsx?)$/,
+    /Register\.(vue|jsx?|tsx?)$/,
+    /Profile\.(vue|jsx?|tsx?)$/,
+    /Dashboard\.(vue|jsx?|tsx?)$/,
+    /Settings\.(vue|jsx?|tsx?)$/,
+    /Checkout\.(vue|jsx?|tsx?)$/,
+    /Search\.(vue|jsx?|tsx?)$/,
+    /About\.(vue|jsx?|tsx?)$/,
+    /Contact\.(vue|jsx?|tsx?)$/,
+    /Admin\.(vue|jsx?|tsx?)$/,
+    /Landing\.(vue|jsx?|tsx?)$/,
+    /Welcome\.(vue|jsx?|tsx?)$/,
+    /NotFound\.(vue|jsx?|tsx?)$/,
+    /Error\.(vue|jsx?|tsx?)$/,
+    /Loading\.(vue|jsx?|tsx?)$/,
+    
+    // Common page name patterns with capitalization
+    /[A-Z][a-z]+Page\.(vue|jsx?|tsx?)$/,
+    /[A-Z][a-z]+View\.(vue|jsx?|tsx?)$/,
+    /[A-Z][a-z]+Screen\.(vue|jsx?|tsx?)$/,
+    /[A-Z][a-z]+Container\.(vue|jsx?|tsx?)$/,
+    
+    // CamelCase patterns
+    /[A-Z][a-zA-Z]*\.(vue|jsx?|tsx?)$/,
   ];
 
   private linkPatterns = [
@@ -63,6 +142,167 @@ export class PageAnalyzer {
   ): Promise<PageStructure> {
     const startTime = Date.now();
 
+    // プロジェクトタイプを判定
+    const projectType = this.detectProjectType(files);
+    
+    if (projectType === 'react' || projectType === 'next') {
+      // React系プロジェクトの場合は新しいアプローチを使用
+      return await this.analyzeReactPages(files, astResults, startTime);
+    } else {
+      // Vue系プロジェクトの場合は従来のアプローチを使用
+      return await this.analyzeVuePages(files, astResults, vueResults, startTime);
+    }
+  }
+
+  /**
+   * プロジェクトタイプを検出
+   */
+  private detectProjectType(files: ScannedFile[]): 'react' | 'vue' | 'next' | 'nuxt' | 'unknown' {
+    const fileExtensions = files.map(f => path.extname(f.path).toLowerCase());
+    const hasVue = fileExtensions.some(ext => ext === '.vue');
+    const hasJsx = fileExtensions.some(ext => ext === '.jsx' || ext === '.tsx');
+    
+    // ディレクトリ構造からも判定
+    const hasNextjsStructure = files.some(f => 
+      f.path.includes('/pages/') || 
+      f.path.includes('/app/') || 
+      f.path.includes('next.config')
+    );
+    
+    const hasNuxtStructure = files.some(f => 
+      f.path.includes('nuxt.config') || 
+      f.path.includes('.nuxt/')
+    );
+
+    if (hasNextjsStructure) return 'next';
+    if (hasNuxtStructure) return 'nuxt';
+    if (hasVue) return 'vue';
+    if (hasJsx) return 'react';
+    
+    return 'unknown';
+  }
+
+  /**
+   * React系プロジェクトの解析
+   */
+  private async analyzeReactPages(
+    files: ScannedFile[],
+    astResults: AstAnalysisResult[],
+    startTime: number
+  ): Promise<PageStructure> {
+    console.log('🚀 React系プロジェクトを検出しました。ルーティング解析を開始...');
+
+         try {
+       // ReactRouterAnalyzerを使用してルーティング情報を解析
+       const reactAnalyzer = new ReactRouterAnalyzer(this.projectPath, files);
+       const routerResult = await reactAnalyzer.analyzeRouting();
+
+      console.log(`📄 ${routerResult.pageComponents.length}個のページコンポーネントを検出`);
+      console.log(`🔗 ${routerResult.componentDependencies.size}個のコンポーネント依存関係を解析`);
+
+      // ルーティング結果からPageStructureを構築
+      return this.buildPageStructureFromRouting(routerResult, files, astResults, startTime);
+    } catch (error) {
+      console.warn(`⚠️ React Router解析に失敗しました。従来の方法にフォールバック: ${error}`);
+      // フォールバックとして従来の方法を使用
+      return await this.analyzeVuePages(files, astResults, [], startTime);
+    }
+  }
+
+  /**
+   * ルーティング解析結果からPageStructureを構築
+   */
+  private buildPageStructureFromRouting(
+    routerResult: ReactRouterAnalysisResult,
+    files: ScannedFile[],
+    astResults: AstAnalysisResult[],
+    startTime: number
+  ): PageStructure {
+    const pages = new Map<string, PageInfo>();
+
+    // 各ルートからPageInfoを構築
+    for (const route of routerResult.routes) {
+      if (!route.componentFile) continue;
+
+      const file = files.find(f => f.relativePath === route.componentFile);
+      if (!file) continue;
+
+      const astResult = astResults.find(r => r.filePath === file.path);
+      
+      // ページコンポーネントの依存関係を取得
+      const dependencies = routerResult.componentDependencies.get(route.componentFile) || [];
+      const components = this.buildComponentsFromDependencies(dependencies, files);
+
+      const pageInfo: PageInfo = {
+        filePath: file.path,
+        name: route.component,
+        route: route.path,
+        type: 'page',
+        components,
+        links: [], // 後で実装可能
+        size: file.size,
+        lastModified: new Date(file.lastModified),
+      };
+
+      pages.set(file.path, pageInfo);
+    }
+
+    const endTime = Date.now();
+
+    // 統計情報を計算
+    const stats = {
+      totalPages: pages.size,
+      totalComponents: Array.from(pages.values()).reduce(
+        (sum, page) => sum + page.components.length,
+        0
+      ),
+      totalLinks: 0, // 後で実装可能
+      isolatedPages: pages.size, // 暫定値
+      analysisTime: endTime - startTime,
+    };
+
+    return {
+      pages,
+      pageLinks: [], // 後で実装可能
+      stats,
+    };
+  }
+
+  /**
+   * 依存関係リストからPageComponentを構築
+   */
+  private buildComponentsFromDependencies(
+    dependencies: string[],
+    files: ScannedFile[]
+  ): PageComponent[] {
+    const components: PageComponent[] = [];
+
+    for (const dep of dependencies) {
+      const file = files.find(f => f.relativePath === dep);
+      if (!file) continue;
+
+      const componentName = path.basename(dep, path.extname(dep));
+      
+      components.push({
+        name: componentName,
+        importPath: dep,
+        usageLines: [1], // 暫定値
+        type: this.getComponentType(dep),
+      });
+    }
+
+    return components;
+  }
+
+  /**
+   * Vue系プロジェクトの解析（従来の方法）
+   */
+  private async analyzeVuePages(
+    files: ScannedFile[],
+    astResults: AstAnalysisResult[],
+    vueResults: VueSfcAnalysisResult[],
+    startTime: number
+  ): Promise<PageStructure> {
     // Identify page files
     const pageFiles = this.identifyPageFiles(files);
     const pages = new Map<string, PageInfo>();
@@ -396,22 +636,104 @@ export class PageAnalyzer {
 
   private isComponentImport(source: string): boolean {
     // Check if import path looks like a component
-    return (
-      source.includes('component') ||
-      source.includes('Component') ||
-      /\.(vue|jsx|tsx)$/.test(source) ||
-      /^[A-Z]/.test(path.basename(source, path.extname(source)))
-    );
+    const lowerSource = source.toLowerCase();
+    const baseName = path.basename(source, path.extname(source));
+    
+    // Explicit component patterns
+    if (
+      lowerSource.includes('component') ||
+      lowerSource.includes('Component') ||
+      /\.(vue|jsx|tsx)$/.test(source)
+    ) {
+      return true;
+    }
+    
+    // Capital letter start (React/Vue component convention)
+    if (/^[A-Z]/.test(baseName)) {
+      return true;
+    }
+    
+    // Common component directory patterns
+    const componentDirs = [
+      'components', 'comp', 'ui', 'shared', 'common', 'widgets',
+      'elements', 'parts', 'modules', 'features', 'containers',
+      'templates', 'layouts', 'forms', 'modals', 'dialogs',
+      'buttons', 'cards', 'headers', 'footers', 'navs', 'menus',
+      'sidebar', 'tables', 'lists', 'items', 'icons', 'images'
+    ];
+    
+    if (componentDirs.some(dir => lowerSource.includes(`/${dir}/`) || lowerSource.includes(`\\${dir}\\`))) {
+      return true;
+    }
+    
+    // Common component naming patterns
+    const componentNames = [
+      'header', 'footer', 'nav', 'menu', 'sidebar', 'modal', 'dialog',
+      'button', 'card', 'form', 'input', 'select', 'textarea', 'checkbox',
+      'radio', 'switch', 'slider', 'table', 'list', 'item', 'icon',
+      'image', 'video', 'audio', 'chart', 'graph', 'map', 'calendar',
+      'date', 'time', 'picker', 'dropdown', 'tooltip', 'popover',
+      'alert', 'toast', 'notification', 'badge', 'chip', 'tag',
+      'avatar', 'progress', 'spinner', 'loader', 'skeleton',
+      'layout', 'grid', 'row', 'col', 'container', 'wrapper',
+      'section', 'panel', 'tabs', 'tab', 'accordion', 'collapse',
+      'carousel', 'slider', 'gallery', 'lightbox', 'preview',
+      'search', 'filter', 'sort', 'pagination', 'breadcrumb',
+      'stepper', 'wizard', 'step', 'editor', 'viewer', 'player'
+    ];
+    
+    if (componentNames.some(name => lowerSource.includes(name))) {
+      return true;
+    }
+    
+    // Amazon clone tutorial specific patterns
+    const ecommerceComponentNames = [
+      'product', 'cart', 'checkout', 'payment', 'order', 'shop',
+      'store', 'catalog', 'category', 'filter', 'search', 'review',
+      'rating', 'wishlist', 'compare', 'banner', 'slider', 'promo',
+      'deal', 'offer', 'price', 'shipping', 'delivery', 'track',
+      'user', 'account', 'profile', 'auth', 'login', 'register',
+      'forgot', 'reset', 'verify', 'dashboard', 'admin', 'seller'
+    ];
+    
+    if (ecommerceComponentNames.some(name => lowerSource.includes(name))) {
+      return true;
+    }
+    
+    // Exclude common non-component patterns
+    const nonComponentPatterns = [
+      'node_modules', 'dist', 'build', 'public', 'static',
+      'assets', 'images', 'img', 'css', 'scss', 'sass', 'less',
+      'json', 'config', 'test', 'spec', 'mock', 'fixture',
+      'util', 'helper', 'service', 'api', 'store', 'reducer',
+      'action', 'mutation', 'middleware', 'plugin', 'mixin',
+      'directive', 'constant', 'enum', 'type', 'interface',
+      'model', 'schema', 'validation', 'rule', 'guard'
+    ];
+    
+    if (nonComponentPatterns.some(pattern => lowerSource.includes(pattern))) {
+      return false;
+    }
+    
+    return false;
   }
 
   private getComponentType(
     importPath: string
   ): 'vue' | 'react' | 'component' | 'layout' {
+    const lowerPath = importPath.toLowerCase();
+    
+    // File extension based detection
     if (importPath.endsWith('.vue')) return 'vue';
-    if (importPath.endsWith('.jsx') || importPath.endsWith('.tsx'))
-      return 'react';
-    if (importPath.includes('layout') || importPath.includes('Layout'))
+    if (importPath.endsWith('.jsx') || importPath.endsWith('.tsx')) return 'react';
+    
+    // Layout detection
+    if (lowerPath.includes('layout') || lowerPath.includes('Layout') ||
+        lowerPath.includes('template') || lowerPath.includes('Template')) {
       return 'layout';
+    }
+    
+    // Default to component
     return 'component';
   }
 
