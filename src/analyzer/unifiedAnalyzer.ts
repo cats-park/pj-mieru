@@ -53,9 +53,9 @@ export class UnifiedAnalyzer {
     llmCalls: 0
   };
 
-  constructor(projectPath: string) {
+  constructor(projectPath: string, options?: { apiKey?: string }) {
     this.projectPath = projectPath;
-    this.llmClient = createLLMClient();
+    this.llmClient = createLLMClient(options?.apiKey);
   }
 
   async analyze(): Promise<UnifiedAnalysisResult> {

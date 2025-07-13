@@ -13,9 +13,9 @@ export class UnifiedAnalyzer {
         completionTokens: 0,
         llmCalls: 0
     };
-    constructor(projectPath) {
+    constructor(projectPath, options) {
         this.projectPath = projectPath;
-        this.llmClient = createLLMClient();
+        this.llmClient = createLLMClient(options?.apiKey);
     }
     async analyze() {
         this.startTime = Date.now();

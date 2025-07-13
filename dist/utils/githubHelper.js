@@ -137,26 +137,47 @@ export async function resolveProjectPath(input) {
     if (isGitHubUrl(input)) {
         const githubInfo = parseGitHubUrl(input);
         if (!githubInfo) {
-            throw new Error(`Invalid GitHub URL format: ${input}`);
+            throw new Error(`無効なGitHub URL: ${input}`);
         }
-        const tempPath = await cloneGitHubRepo(githubInfo);
+        const tempDir = await cloneGitHubRepo(githubInfo);
         return {
-            path: tempPath,
+            path: tempDir,
             isTemporary: true,
-            cleanup: () => cleanupTempDir(tempPath),
+            cleanup: async () => {
+                await cleanupTempDir(tempDir);
+            }
         };
     }
-    // ローカルパスの場合
-    const absolutePath = path.resolve(input);
-    try {
-        await fs.promises.access(absolutePath);
-        return {
-            path: absolutePath,
-            isTemporary: false,
-        };
-    }
-    catch (error) {
-        throw new Error(`Local path does not exist: ${absolutePath}`);
+    else {
+        // ローカルパス
+        const resolvedPath = path.resolve(input);
+        try {
+            await fs.promises.access(resolvedPath);
+            return {
+                path: resolvedPath,
+                isTemporary: false
+            };
+        }
+        catch (error) {
+            throw new Error(`ディレクトリが存在しません: ${resolvedPath}`);
+        }
     }
 }
+// オブジェクトエクスポート（CLI用）
+export const githubHelper = {
+    isGitHubUrl,
+    parseGitHubUrl,
+    cloneRepository: async (url) => {
+        const githubInfo = parseGitHubUrl(url);
+        if (!githubInfo) {
+            throw new Error(`無効なGitHub URL: ${url}`);
+        }
+        const localPath = await cloneGitHubRepo(githubInfo);
+        return {
+            localPath,
+            repoName: githubInfo.repo
+        };
+    },
+    cleanup: cleanupTempDir
+};
 //# sourceMappingURL=githubHelper.js.map

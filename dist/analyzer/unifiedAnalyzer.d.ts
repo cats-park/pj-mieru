@@ -37,7 +37,9 @@ export declare class UnifiedAnalyzer {
     private analysisLog;
     private startTime;
     private tokenUsage;
-    constructor(projectPath: string);
+    constructor(projectPath: string, options?: {
+        apiKey?: string;
+    });
     analyze(): Promise<UnifiedAnalysisResult>;
     private scanFiles;
     private detectFramework;

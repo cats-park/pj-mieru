@@ -142,12 +142,13 @@ export class LLMClient {
         };
     }
 }
-export function createLLMClient() {
-    // Try to determine which LLM service to use based on available API keys
-    if (process.env.OPENAI_API_KEY) {
+export function createLLMClient(apiKey) {
+    // APIキーの優先順位: 引数 > 環境変数
+    const effectiveApiKey = apiKey || process.env.MIERU_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    if (effectiveApiKey) {
         return new LLMClient({
             provider: 'openai',
-            apiKey: process.env.OPENAI_API_KEY,
+            apiKey: effectiveApiKey,
             model: process.env.OPENAI_MODEL || 'gpt-4',
             maxTokens: parseInt(process.env.LLM_MAX_TOKENS || '4000'),
             temperature: parseFloat(process.env.LLM_TEMPERATURE || '0.1'),

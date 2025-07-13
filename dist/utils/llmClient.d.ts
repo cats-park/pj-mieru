@@ -23,5 +23,5 @@ export declare class LLMClient {
     private callAnthropic;
     private callPerplexity;
 }
-export declare function createLLMClient(): LLMClient;
+export declare function createLLMClient(apiKey?: string): LLMClient;
 //# sourceMappingURL=llmClient.d.ts.map

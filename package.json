@@ -1,51 +1,63 @@
 {
-  "name": "project-mieru",
+  "name": "mieru",
   "version": "1.0.0",
-  "description": "Component visualization tool for Nuxt/Next.js projects",
+  "description": "🔍 プロジェクトのページ構造とコンポーネント階層を可視化するCLIツール。React、Vue、Next.js、Nuxtプロジェクトの構造を自動解析してMermaidダイアグラムを生成します。",
   "main": "dist/index.js",
   "type": "module",
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "cli": "tsx src/cli.ts",
-    "cli:build": "node dist/cli.js",
-    "start": "node dist/index.js",
-    "lint": "eslint src --ext .ts",
-    "format": "prettier --write src"
-  },
   "bin": {
     "mieru": "dist/cli.js"
   },
-  "keywords": [
-    "vue",
-    "nuxt",
-    "react",
-    "nextjs",
-    "component",
-    "visualization",
-    "mermaid",
-    "dependency"
-  ],
-  "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "@babel/parser": "^7.24.0",
-    "@vue/compiler-sfc": "^3.5.16",
-    "commander": "^12.0.0",
-    "dotenv": "^16.5.0",
-    "glob": "^10.3.0",
-    "mermaid": "^10.9.3"
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "cli": "tsx src/cli.ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "devDependencies": {
-    "@types/node": "^20.19.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "eslint": "^8.56.0",
-    "prettier": "^3.2.0",
-    "tsx": "^4.7.0",
-    "typescript": "^5.8.3"
+  "keywords": [
+    "frontend",
+    "react",
+    "vue",
+    "nextjs",
+    "nuxt",
+    "component-analysis",
+    "project-structure",
+    "mermaid",
+    "visualization",
+    "cli",
+    "static-analysis",
+    "code-analysis",
+    "project-explorer",
+    "component-tree",
+    "architecture"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/mieru.git"
+  },
+  "homepage": "https://github.com/your-username/mieru#readme",
+  "bugs": {
+    "url": "https://github.com/your-username/mieru/issues"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }

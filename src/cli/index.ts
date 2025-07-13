@@ -1,267 +1,21 @@
 #!/usr/bin/env node
+
 import { Command } from 'commander';
-import path from 'path';
-import { writeFile } from 'fs/promises';
-import { resolveProjectPath, isGitHubUrl } from '../utils/githubHelper.js';
 import { UnifiedAnalyzer } from '../analyzer/unifiedAnalyzer.js';
-import { ErrorHandler } from '../core/errorHandler.js';
+import { githubHelper } from '../utils/githubHelper.js';
+import { ConfigManager } from '../utils/config.js';
+import path from 'path';
+import fs from 'fs/promises';
 
-const program = new Command();
-
-// プロジェクト名を抽出する関数
-function extractProjectName(inputPath: string): string {
-  // GitHub URLの場合
-  if (isGitHubUrl(inputPath)) {
-    const url = new URL(inputPath);
-    const pathSegments = url.pathname.split('/').filter(Boolean);
-    if (pathSegments.length >= 2) {
-      return pathSegments[pathSegments.length - 1]; // リポジトリ名
-    }
-  }
-
-  // ローカルパスの場合
-  const normalizedPath = path.normalize(inputPath);
-  const projectName = path.basename(normalizedPath);
-  return projectName;
-}
-
-// Version and basic info
-program
-  .name('mieru')
-  .description(
-    'React、Vue、Next.js、Nuxt.js等のプロジェクト構造を可視化するツール'
-  )
-  .version('1.0.0');
-
-// Analyze command - シンプルな1つのコマンド
-program
-  .command('analyze')
-  .description('プロジェクトを解析してページとコンポーネントの構造を可視化する')
-  .argument('<path>', 'プロジェクトのパス (ローカルパス または GitHub URL)')
-  .option('--output <name>', '出力ファイル名のプレフィックス')
-  .option('--verbose', '詳細なログを表示', false)
-  .action(async (inputPath: string, options) => {
-    const isGitHub = isGitHubUrl(inputPath);
-    const projectName = extractProjectName(inputPath);
-    const outputPrefix = options.output || `analysis-${projectName}`;
-
-    console.log(`🔍 プロジェクトを解析中: ${inputPath}`);
-    console.log(
-      `🌐 ソース: ${isGitHub ? 'GitHub リポジトリ' : 'ローカルディレクトリ'}`
-    );
-    console.log(`📁 プロジェクト名: ${projectName}`);
-    console.log('');
-
-    let resolvedPath: {
-      path: string;
-      isTemporary: boolean;
-      cleanup?: () => Promise<void>;
-    } | null = null;
-
-    try {
-      // パスを解決（GitHub URLまたはローカルパス）
-      resolvedPath = await resolveProjectPath(inputPath);
-      const projectPath = resolvedPath.path;
-
-      // 統合解析エンジンを使用
-      const analyzer = new UnifiedAnalyzer(projectPath);
-      const result = await analyzer.analyze();
-
-      // 結果を表示
-      console.log('');
-      console.log('📊 解析結果:');
-      console.log(
-        `   フレームワーク: ${result.framework.name} (信頼度: ${result.framework.confidence}%)`
-      );
-      console.log(`   総ファイル数: ${result.totalFiles}`);
-      console.log(`   検出ページ数: ${result.pages.length}`);
-      console.log(`   解析時間: ${result.analysisTime}ms`);
-      console.log(
-        `   LLM使用量: ${result.tokenUsage.totalTokens} tokens (${result.tokenUsage.llmCalls} calls)`
-      );
-      console.log('');
-
-      // ページ詳細を表示
-      if (result.pages.length > 0) {
-        console.log('📄 検出されたページ:');
-        result.pages.forEach((page, index) => {
-          console.log(`   ${index + 1}. ${page.name} (${page.route})`);
-          console.log(`      ファイル: ${page.filePath}`);
-          console.log(`      コンポーネント: ${page.components.length}個`);
-          if (options.verbose) {
-            console.log(`      理由: ${page.reason}`);
-          }
-        });
-        console.log('');
-      } else {
-        console.log('⚠️  ページが検出されませんでした。');
-        console.log('');
-      }
-
-      // Markdownレポートを生成
-      const markdownContent = generateMarkdownReport(
-        result,
-        projectName,
-        inputPath
-      );
-      const outputFileName = `${outputPrefix}-pages.md`;
-      const outputPath = path.join('output', outputFileName);
-
-      // outputディレクトリが存在しない場合は作成
-      try {
-        await import('fs').then((fs) =>
-          fs.promises.mkdir('output', { recursive: true })
-        );
-      } catch (error) {
-        // ディレクトリが既に存在する場合は無視
-      }
-
-      await writeFile(outputPath, markdownContent);
-
-      console.log(`📝 レポートを生成しました: ${outputPath}`);
-
-      // 詳細ログを表示（オプション）
-      if (options.verbose) {
-        console.log('');
-        console.log('📋 詳細ログ:');
-        result.analysisLog.forEach((log) => console.log(`   ${log}`));
-      }
-    } catch (error) {
-      ErrorHandler.handleError(error);
-    } finally {
-      // 一時ディレクトリのクリーンアップ
-      if (resolvedPath?.cleanup) {
-        try {
-          await resolvedPath.cleanup();
-        } catch (cleanupError) {
-          console.warn(
-            `Warning: クリーンアップに失敗しました: ${cleanupError}`
-          );
-        }
-      }
-    }
-  });
-
-// Init command for creating config file
-program
-  .command('init')
-  .description('Initialize mieru configuration file')
-  .option('-f, --force', 'Overwrite existing config file')
-  .action(async (options: { force?: boolean }) => {
-    try {
-      await initConfig(options.force);
-    } catch (error) {
-      ErrorHandler.handleError(error);
-    }
-  });
-
-// Markdownレポート生成関数
-function generateMarkdownReport(
-  result: any,
-  projectName: string,
-  inputPath: string
-): string {
-  const { framework, pages, totalFiles, analysisTime } = result;
-
-  let markdown = `# ${projectName} - ページ構造解析レポート
-
-## 📊 プロジェクト概要
-
-- **プロジェクト名**: ${projectName}
-- **ソース**: ${inputPath}
-- **フレームワーク**: ${framework.name} ${framework.version ? `(${framework.version})` : ''}
-- **信頼度**: ${framework.confidence}%
-- **総ファイル数**: ${totalFiles}
-- **解析時間**: ${analysisTime}ms
-- **LLM使用量**: ${result.tokenUsage.totalTokens} tokens (${result.tokenUsage.llmCalls} calls)
-- **生成日時**: ${new Date().toLocaleString('ja-JP')}
-
-## 📄 検出されたページ (${pages.length}個)
-
-`;
-
+// Mermaid diagram generation function
+function createMermaidDiagram(pages: any[]): string {
   if (pages.length === 0) {
-    markdown += `⚠️ ページが検出されませんでした。
-
-### 考えられる原因:
-1. プロジェクトが対応フレームワーク（React、Vue、Next.js、Nuxt.js）でない
-2. ページファイルが標準的な場所にない
-3. ファイル名が一般的でない
-
-`;
-    // 空のMermaid図を追加
-    markdown += `
-## 🗺️ プロジェクト構造図
-
-\`\`\`mermaid
-flowchart LR
+    return `flowchart LR
   empty["ページが検出されませんでした"]
-  style empty fill:#FFF3CD,stroke:#856404,color:#856404
-\`\`\`
-
-`;
-  } else {
-    // Mermaid図を追加
-    markdown += generateMermaidDiagram(pages);
-
-    // 各ページの詳細を追加
-    pages.forEach((page: any, index: number) => {
-      markdown += `### ${index + 1}. 📄 ${page.name}
-
-- **ファイル**: \`${page.filePath}\`
-- **ルート**: \`${page.route}\`
-- **コンポーネント数**: ${page.components.length}個
-- **判定理由**: ${page.reason}
-
-`;
-
-      if (page.components.length > 0) {
-        markdown += `#### 🧩 使用コンポーネント
-
-`;
-        page.components.forEach((comp: any) => {
-          markdown += renderComponentHierarchy(comp, 0);
-        });
-        markdown += '\n';
-      }
-    });
+  style empty fill:#FFF3CD,stroke:#856404,color:#856404`;
   }
 
-  markdown += `## 🔧 技術詳細
-
-### フレームワーク情報
-- **検出パターン**: ${framework.pagePatterns?.join(', ') || 'なし'}
-- **コンポーネントパターン**: ${framework.componentPatterns?.join(', ') || 'なし'}
-
-### 解析統計
-- **総ファイル数**: ${totalFiles}
-- **ページ数**: ${pages.length}
-- **総コンポーネント数**: ${pages.reduce((sum: number, page: any) => sum + page.components.length, 0)}
-
-### LLM使用量詳細
-- **総トークン数**: ${result.tokenUsage.totalTokens}
-- **プロンプトトークン数**: ${result.tokenUsage.promptTokens}
-- **レスポンストークン数**: ${result.tokenUsage.completionTokens}
-- **API呼び出し回数**: ${result.tokenUsage.llmCalls}
-
----
-*このレポートは [mieru](https://github.com/your-repo/mieru) によって生成されました。*
-`;
-
-  return markdown;
-}
-
-// Mermaid図生成関数
-function generateMermaidDiagram(pages: any[]): string {
-  if (pages.length === 0) {
-    return '';
-  }
-
-  let mermaid = `
-## 🗺️ プロジェクト構造図
-
-\`\`\`mermaid
-flowchart TB
+  let mermaid = `flowchart TB
 
 %% ページ構造図
 %% 階層構造をsubgraphで表現
@@ -296,7 +50,7 @@ flowchart TB
           mermaid += `${indent}  subgraph ${compId} ["🧩 ${comp.name}"]\n`;
           mermaid += `${indent}    direction TB\n`;
 
-          // 子コンポーネントを再帰的に追加（正しいインデントで配置）
+          // 子コンポーネントを再帰的に追加
           comp.children.forEach((child: any) => {
             const childId = `${pageId}_comp${compCounter++}`;
             const childIcon = getComponentIcon(child.type);
@@ -356,10 +110,6 @@ flowchart TB
     mermaid += `  linkStyle ${i} stroke:transparent\n`;
   }
 
-  mermaid += `\`\`\`
-
-`;
-
   return mermaid;
 }
 
@@ -394,70 +144,248 @@ function getComponentIcon(type: string): string {
   }
 }
 
-// コンポーネント階層を再帰的に表示する関数
-function renderComponentHierarchy(component: any, depth: number): string {
-  const indent = '  '.repeat(depth);
-  const icon = getComponentIcon(component.type);
+const program = new Command();
 
-  let markdown = `${indent}- ${icon} **${component.name}** (${component.type})`;
-  if (component.filePath) {
-    markdown += ` - \`${component.filePath}\``;
-  }
-  markdown += '\n';
+program
+  .name('mieru')
+  .description('プロジェクトのページ構造を可視化するCLIツール')
+  .version('1.0.0');
 
-  // 子コンポーネントがある場合は再帰的に表示
-  if (component.children && component.children.length > 0) {
-    for (const child of component.children) {
-      markdown += renderComponentHierarchy(child, depth + 1);
+// setup コマンド
+program
+  .command('setup')
+  .description('初回セットアップ（APIキー設定等）')
+  .action(async () => {
+    try {
+      await ConfigManager.setupInteractive();
+    } catch (error) {
+      console.error('❌ セットアップに失敗しました:', error);
+      process.exit(1);
     }
-  }
+  });
 
-  return markdown;
+// analyze コマンド
+program
+  .command('analyze')
+  .description('プロジェクト構造を解析してレポートを生成')
+  .argument('<source>', 'プロジェクトのパス（ローカルパスまたはGitHub URL）')
+  .option('--api-key <key>', 'OpenAI APIキー')
+  .option('--max-depth <number>', '最大解析深度', '5')
+  .option('--output <path>', '出力ディレクトリ', './output')
+  .option('--include-external', '外部ライブラリを含める', false)
+  .action(async (source: string, options) => {
+    try {
+      // APIキーを取得
+      const apiKey = await ConfigManager.getApiKey(options.apiKey);
+      
+      let projectPath: string;
+      let projectName: string;
+      let isGitHub = false;
+
+      if (githubHelper.isGitHubUrl(source)) {
+        console.log(`🔍 プロジェクトを解析中: ${source}`);
+        console.log('🌐 ソース: GitHub リポジトリ');
+        const cloneResult = await githubHelper.cloneRepository(source);
+        projectPath = cloneResult.localPath;
+        projectName = cloneResult.repoName;
+        isGitHub = true;
+        console.log(`📁 プロジェクト名: ${projectName}`);
+        console.log();
+      } else {
+        const resolvedPath = path.resolve(source);
+        try {
+          await fs.access(resolvedPath);
+          projectPath = resolvedPath;
+          projectName = path.basename(resolvedPath);
+          console.log(`🔍 プロジェクトを解析中: ${projectPath}`);
+          console.log('📁 ソース: ローカルディレクトリ');
+          console.log(`📁 プロジェクト名: ${projectName}`);
+          console.log();
+        } catch {
+          console.error(`❌ エラー: ディレクトリが存在しません: ${resolvedPath}`);
+          process.exit(1);
+        }
+      }
+
+      // 解析実行
+      const analyzer = new UnifiedAnalyzer(projectPath, { apiKey });
+      const result = await analyzer.analyze();
+
+      // 結果表示
+      console.log('\n📊 解析結果:');
+      console.log(`   フレームワーク: ${result.framework.name} (信頼度: ${result.framework.confidence}%)`);
+      console.log(`   総ファイル数: ${result.totalFiles}`);
+      console.log(`   検出ページ数: ${result.pages.length}`);
+      console.log(`   解析時間: ${result.analysisTime}ms`);
+      console.log(`   LLM使用量: ${result.tokenUsage.totalTokens} tokens (${result.tokenUsage.llmCalls} calls)`);
+
+      // ページ一覧表示
+      if (result.pages.length > 0) {
+        console.log('\n📄 検出されたページ:');
+        result.pages.forEach((page, index) => {
+          const componentCount = countTotalComponents(page.components);
+          console.log(`   ${index + 1}. ${page.name} (${page.route})`);
+          console.log(`      ファイル: ${page.filePath}`);
+          console.log(`      コンポーネント: ${componentCount}個`);
+        });
+      } else {
+        console.log('\n⚠️  ページが検出されませんでした。');
+      }
+
+      // Mermaidダイアグラム生成
+      const mermaidDiagram = createMermaidDiagram(result.pages);
+
+      // 出力ディレクトリの作成
+      const outputDir = path.resolve(options.output);
+      await fs.mkdir(outputDir, { recursive: true });
+
+      // レポート生成
+      const reportContent = generateMarkdownReport(result, source, mermaidDiagram);
+      const reportPath = path.join(outputDir, `analysis-${projectName}-pages.md`);
+      await fs.writeFile(reportPath, reportContent, 'utf-8');
+
+      console.log(`\n📝 レポートを生成しました: ${reportPath}`);
+
+      // GitHub リポジトリの場合はクリーンアップ
+      if (isGitHub) {
+        await githubHelper.cleanup(projectPath);
+        console.log(`🧹 Cleaned up temporary directory: ${projectPath}`);
+      }
+
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('OpenAI APIキーが見つかりません')) {
+        console.error(error.message);
+        process.exit(1);
+      } else {
+        console.error('❌ 解析中にエラーが発生しました:', error);
+        process.exit(1);
+      }
+    }
+  });
+
+// config コマンド
+program
+  .command('config')
+  .description('設定の表示・変更')
+  .option('--show', '現在の設定を表示')
+  .option('--reset', '設定をリセット')
+  .action(async (options) => {
+    try {
+      if (options.show) {
+        const config = await ConfigManager.loadConfig();
+        console.log('📋 現在の設定:');
+        console.log(JSON.stringify(
+          { ...config, openaiApiKey: config.openaiApiKey ? '****' : 'not set' }, 
+          null, 
+          2
+        ));
+      } else if (options.reset) {
+        await ConfigManager.saveConfig({});
+        console.log('✅ 設定をリセットしました');
+      } else {
+        console.log('使用方法: mieru config --show または mieru config --reset');
+      }
+    } catch (error) {
+      console.error('❌ 設定の操作に失敗しました:', error);
+      process.exit(1);
+    }
+  });
+
+// ヘルプを表示
+if (process.argv.length === 2) {
+  program.outputHelp();
 }
 
-// 設定ファイル初期化関数
-async function initConfig(force?: boolean): Promise<void> {
-  const configPath = path.join(process.cwd(), 'mieru.config.json');
+program.parse();
 
-  // 既存のファイルがある場合の処理
-  try {
-    const { stat } = await import('fs/promises');
-    await stat(configPath);
-    if (!force) {
-      console.log(`⚠️  設定ファイルが既に存在します: ${configPath}`);
-      console.log('上書きする場合は --force オプションを使用してください。');
-      return;
+function countTotalComponents(components: any[]): number {
+  let count = components.length;
+  for (const component of components) {
+    if (component.children && Array.isArray(component.children)) {
+      count += countTotalComponents(component.children);
     }
-  } catch {
-    // ファイルが存在しない場合は続行
   }
-
-  const config = {
-    framework: 'auto',
-    pagePatterns: [
-      'pages/**/*.{vue,js,jsx,ts,tsx}',
-      'src/pages/**/*.{vue,js,jsx,ts,tsx}',
-      'src/views/**/*.{vue,js,jsx,ts,tsx}',
-      'app/**/*.{vue,js,jsx,ts,tsx}',
-    ],
-    componentPatterns: [
-      'components/**/*.{vue,js,jsx,ts,tsx}',
-      'src/components/**/*.{vue,js,jsx,ts,tsx}',
-    ],
-    excludePatterns: [
-      '**/*.test.{js,jsx,ts,tsx}',
-      '**/*.spec.{js,jsx,ts,tsx}',
-      '**/*.stories.{js,jsx,ts,tsx}',
-      '**/node_modules/**',
-    ],
-    maxDepth: 10,
-    verbose: false,
-  };
-
-  await writeFile(configPath, JSON.stringify(config, null, 2));
-  console.log(`✅ 設定ファイルを作成しました: ${configPath}`);
+  return count;
 }
 
+function generateMarkdownReport(result: any, source: string, mermaidDiagram: string): string {
+  const now = new Date();
+  const timestamp = now.toLocaleString('ja-JP');
+  
+  return `# ${result.projectName || 'Project'} - ページ構造解析レポート
+
+## 📊 プロジェクト概要
+
+- **プロジェクト名**: ${result.projectName || 'Unknown'}
+- **ソース**: ${source}
+- **フレームワーク**: ${result.framework.name} (${result.framework.version || 'Unknown'})
+- **信頼度**: ${result.framework.confidence}%
+- **総ファイル数**: ${result.totalFiles}
+- **解析時間**: ${result.analysisTime}ms
+- **LLM使用量**: ${result.tokenUsage.totalTokens} tokens (${result.tokenUsage.llmCalls} calls)
+- **生成日時**: ${timestamp}
+
+## 📄 検出されたページ (${result.pages.length}個)
+
+${result.pages.length === 0 ? '\n⚠️ ページが検出されませんでした。\n\n### 考えられる原因:\n1. プロジェクトが対応フレームワーク（React、Vue、Next.js、Nuxt.js）でない\n2. ページファイルが標準的な場所にない\n3. ファイル名が一般的でない\n' : ''}
+
+## 🗺️ プロジェクト構造図
+
+\`\`\`mermaid
+${mermaidDiagram}
+\`\`\`
+
+${result.pages.map((page: any, index: number) => {
+  const componentCount = countTotalComponents(page.components);
+  return `### ${index + 1}. 📄 ${page.name}
+
+- **ファイル**: \`${page.filePath}\`
+- **ルート**: \`${page.route}\`
+- **コンポーネント数**: ${componentCount}個
+- **判定理由**: ${page.reason}
+
+#### 🧩 使用コンポーネント
+
+${generateComponentList(page.components)}`;
+}).join('\n\n')}
+
+## 🔧 技術詳細
+
+### フレームワーク情報
+- **検出パターン**: ${result.framework.pagePatterns?.join(', ') || 'なし'}
+- **コンポーネントパターン**: ${result.framework.componentPatterns?.join(', ') || 'なし'}
+
+### 解析統計
+- **総ファイル数**: ${result.totalFiles}
+- **ページ数**: ${result.pages.length}
+- **総コンポーネント数**: ${result.pages.reduce((total: number, page: any) => total + countTotalComponents(page.components), 0)}
+
+### LLM使用量詳細
+- **総トークン数**: ${result.tokenUsage.totalTokens}
+- **プロンプトトークン数**: ${result.tokenUsage.promptTokens}
+- **レスポンストークン数**: ${result.tokenUsage.completionTokens}
+- **API呼び出し回数**: ${result.tokenUsage.llmCalls}
+
+---
+*このレポートは [mieru](https://github.com/your-repo/mieru) によって生成されました。*
+`;
+}
+
+function generateComponentList(components: any[], depth: number = 0): string {
+  if (!components || components.length === 0) {
+    return '';
+  }
+
+  return components.map(component => {
+    const indent = '  '.repeat(depth);
+    const hasChildren = component.children && component.children.length > 0;
+    const childrenText = hasChildren ? generateComponentList(component.children, depth + 1) : '';
+    
+    return `${indent}- 🧩 **${component.name}** (${component.type}) - \`${component.filePath || 'unknown'}\`${childrenText ? '\n' + childrenText : ''}`;
+  }).join('\n');
+}
+
+// CLI実行関数
 export function runCLI(args?: string[]): void {
   if (args) {
     program.parse(args);
