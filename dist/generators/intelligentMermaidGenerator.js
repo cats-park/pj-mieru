@@ -7,6 +7,7 @@ export class IntelligentMermaidGenerator {
             showComponentTypes: true,
             showUsageContext: false,
             groupByDirectory: true,
+            useSimpleLayout: true,
             ...config,
         };
     }
@@ -26,7 +27,12 @@ export class IntelligentMermaidGenerator {
             lines.push('');
         }
         // Generate page-component relationships with improved layout
-        this.generateEnhancedPageComponentRelationships(lines, result.pageComponentUsages);
+        if (this.config.useSimpleLayout) {
+            this.generateSimplePageComponentRelationships(lines, result.pageComponentUsages);
+        }
+        else {
+            this.generateEnhancedPageComponentRelationships(lines, result.pageComponentUsages);
+        }
         // Add styling
         lines.push('');
         lines.push(...this.generateEnhancedStyling());
@@ -183,24 +189,67 @@ export class IntelligentMermaidGenerator {
             lines.push(`  ${componentId}["${typeIcon} ${label}"]:::${type}Style`);
         });
         lines.push('');
-        // Create page subgraphs (only actual pages get subgraphs)
+        // Create page subgraphs with better spacing to avoid overlap
         usages.forEach((page) => {
             const pageId = this.sanitizeId(`page_${page.page}`);
             const pageDisplayName = this.getPageDisplayName(page.page);
-            // Create subgraph for each page
-            lines.push(`  subgraph ${pageId} ["📄 ${pageDisplayName}"]`);
-            // Add a placeholder node inside the page subgraph
-            lines.push(`    ${pageId}_content["ページ内容"]:::pageContentStyle`);
+            // Create subgraph with empty title to avoid overlap
+            lines.push(`  subgraph ${pageId} [" "]`);
+            // Add page title as a styled node inside the subgraph  
+            lines.push(`    ${pageId}_title["📄 ${pageDisplayName}"]:::pageStyle`);
+            // Add spacer node to create vertical space
+            lines.push(`    ${pageId}_spacer[" "]:::spacerStyle`);
+            // Create vertical layout inside subgraph
+            lines.push(`    ${pageId}_title --> ${pageId}_spacer`);
             lines.push('  end');
         });
         lines.push('');
         // Create relationships from pages to components
         usages.forEach((page) => {
             const pageId = this.sanitizeId(`page_${page.page}`);
-            const pageContentId = `${pageId}_content`;
+            const pageSpacerId = `${pageId}_spacer`;
             page.components.forEach((component) => {
                 const componentId = this.sanitizeId(`comp_${component.name}`);
-                lines.push(`  ${pageContentId} --> ${componentId}`);
+                lines.push(`  ${pageSpacerId} --> ${componentId}`);
+            });
+        });
+    }
+    generateSimplePageComponentRelationships(lines, usages) {
+        // シンプルな表現：subgraphを使わずに、ページを単純なノードとして表現
+        const allComponents = new Set();
+        const componentTypes = new Map();
+        const componentUsageCount = new Map();
+        // Collect component information
+        usages.forEach((page) => {
+            page.components.forEach((component) => {
+                allComponents.add(component.name);
+                componentTypes.set(component.name, component.type);
+                componentUsageCount.set(component.name, (componentUsageCount.get(component.name) || 0) + 1);
+            });
+        });
+        // Create page nodes
+        usages.forEach((page) => {
+            const pageId = this.sanitizeId(`page_${page.page}`);
+            const pageDisplayName = this.getPageDisplayName(page.page);
+            lines.push(`  ${pageId}["📄 ${pageDisplayName}"]:::pageStyle`);
+        });
+        lines.push('');
+        // Create component nodes with usage count
+        allComponents.forEach((componentName) => {
+            const componentId = this.sanitizeId(`comp_${componentName}`);
+            const type = componentTypes.get(componentName) || 'component';
+            const usageCount = componentUsageCount.get(componentName) || 0;
+            const label = usageCount > 1 ? `${componentName} (${usageCount}回使用)` : componentName;
+            const typeIcon = this.getComponentTypeIcon(type);
+            lines.push(`  ${componentId}["${typeIcon} ${label}"]:::${type}Style`);
+        });
+        lines.push('');
+        // Create direct relationships from pages to components
+        usages.forEach((page) => {
+            const pageId = this.sanitizeId(`page_${page.page}`);
+            page.components.forEach((component) => {
+                const componentId = this.sanitizeId(`comp_${component.name}`);
+                lines.push(`  ${pageId} --> ${componentId}`);
             });
         });
     }
@@ -289,6 +338,7 @@ export class IntelligentMermaidGenerator {
         lines.push('classDef utilityStyle fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000;');
         lines.push('classDef groupStyle fill:#f5f5f5,stroke:#757575,stroke-width:1px,color:#424242;');
         lines.push('classDef pageContentStyle fill:transparent,stroke:transparent;');
+        lines.push('classDef spacerStyle fill:transparent,stroke:transparent,color:transparent;');
         return lines;
     }
     generateStyling() {

@@ -24,7 +24,7 @@ export function parseGitHubUrl(url) {
             return {
                 owner: match[1],
                 repo: match[2].replace(/\.git$/, ''),
-                branch: match[3] || 'main',
+                branch: match[3], // ブランチが指定されていない場合はundefinedにする
                 path: match[4],
             };
         }
@@ -41,9 +41,55 @@ export async function cloneGitHubRepo(githubInfo) {
         await fs.promises.mkdir(tempDir, { recursive: true });
         // gitクローン実行
         const cloneUrl = `https://github.com/${githubInfo.owner}/${githubInfo.repo}.git`;
-        const cloneCommand = `git clone --depth 1 --branch ${githubInfo.branch} ${cloneUrl} ${tempDir}`;
         console.log(`🔗 Cloning repository: ${githubInfo.owner}/${githubInfo.repo}...`);
-        await execAsync(cloneCommand);
+        // 1. 指定されたブランチでクローンを試す
+        if (githubInfo.branch) {
+            try {
+                const cloneCommand = `git clone --depth 1 --branch ${githubInfo.branch} ${cloneUrl} ${tempDir}`;
+                await execAsync(cloneCommand);
+            }
+            catch (branchError) {
+                console.log(`⚠️  指定されたブランチ '${githubInfo.branch}' が見つかりません。デフォルトブランチを試します...`);
+                // 指定ブランチが失敗した場合は、デフォルトブランチでクローン
+                await fs.promises.rm(tempDir, { recursive: true, force: true });
+                await fs.promises.mkdir(tempDir, { recursive: true });
+                const defaultCloneCommand = `git clone --depth 1 ${cloneUrl} ${tempDir}`;
+                await execAsync(defaultCloneCommand);
+            }
+        }
+        else {
+            // 2. ブランチが指定されていない場合、main/masterブランチを順番に試す
+            const branchesToTry = ['main', 'master', 'develop', 'dev'];
+            let cloneSuccessful = false;
+            for (const branch of branchesToTry) {
+                try {
+                    const cloneCommand = `git clone --depth 1 --branch ${branch} ${cloneUrl} ${tempDir}`;
+                    await execAsync(cloneCommand);
+                    cloneSuccessful = true;
+                    break;
+                }
+                catch (branchError) {
+                    // このブランチが存在しない場合は次を試す
+                    try {
+                        await fs.promises.rm(tempDir, { recursive: true, force: true });
+                        await fs.promises.mkdir(tempDir, { recursive: true });
+                    }
+                    catch (cleanupError) {
+                        // クリーンアップエラーは無視
+                    }
+                }
+            }
+            // 全てのブランチが失敗した場合は、デフォルトブランチでクローン
+            if (!cloneSuccessful) {
+                try {
+                    const defaultCloneCommand = `git clone --depth 1 ${cloneUrl} ${tempDir}`;
+                    await execAsync(defaultCloneCommand);
+                }
+                catch (defaultError) {
+                    throw new Error(`Failed to clone with any branch: ${defaultError}`);
+                }
+            }
+        }
         // 指定されたパスがある場合は、そのサブディレクトリを返す
         if (githubInfo.path) {
             const targetPath = path.join(tempDir, githubInfo.path);

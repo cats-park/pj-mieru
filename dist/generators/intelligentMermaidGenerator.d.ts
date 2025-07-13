@@ -5,6 +5,7 @@ export interface IntelligentMermaidConfig {
     showComponentTypes: boolean;
     showUsageContext: boolean;
     groupByDirectory: boolean;
+    useSimpleLayout: boolean;
 }
 export declare class IntelligentMermaidGenerator {
     private config;
@@ -13,6 +14,7 @@ export declare class IntelligentMermaidGenerator {
     generatePageComponentDiagram(result: IntelligentAnalysisResult): string;
     generateMarkdownReport(result: IntelligentAnalysisResult): string;
     private generateEnhancedPageComponentRelationships;
+    private generateSimplePageComponentRelationships;
     private generatePageComponentRelationships;
     private groupPagesByDirectory;
     private extractDirectory;

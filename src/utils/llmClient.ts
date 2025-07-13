@@ -30,18 +30,38 @@ export interface LLMConfig {
   temperature?: number;
 }
 
+export interface LLMUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface LLMResponse {
+  content: string;
+  usage?: LLMUsage;
+}
+
 interface OpenAIResponse {
   choices: Array<{
     message: {
       content: string;
     };
   }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 interface AnthropicResponse {
   content: Array<{
     text: string;
   }>;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+  };
 }
 
 interface PerplexityResponse {
@@ -50,6 +70,11 @@ interface PerplexityResponse {
       content: string;
     };
   }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 export class LLMClient {
@@ -60,6 +85,11 @@ export class LLMClient {
   }
 
   async chat(prompt: string): Promise<string> {
+    const response = await this.chatWithUsage(prompt);
+    return response.content;
+  }
+
+  async chatWithUsage(prompt: string): Promise<LLMResponse> {
     switch (this.config.provider) {
       case 'openai':
         return this.callOpenAI(prompt);
@@ -72,7 +102,7 @@ export class LLMClient {
     }
   }
 
-  private async callOpenAI(prompt: string): Promise<string> {
+  private async callOpenAI(prompt: string): Promise<LLMResponse> {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -99,10 +129,17 @@ export class LLMClient {
     }
 
     const data = (await response.json()) as OpenAIResponse;
-    return data.choices[0].message.content;
+    return {
+      content: data.choices[0].message.content,
+      usage: data.usage ? {
+        promptTokens: data.usage.prompt_tokens,
+        completionTokens: data.usage.completion_tokens,
+        totalTokens: data.usage.total_tokens,
+      } : undefined
+    };
   }
 
-  private async callAnthropic(prompt: string): Promise<string> {
+  private async callAnthropic(prompt: string): Promise<LLMResponse> {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -130,10 +167,17 @@ export class LLMClient {
     }
 
     const data = (await response.json()) as AnthropicResponse;
-    return data.content[0].text;
+    return {
+      content: data.content[0].text,
+      usage: data.usage ? {
+        promptTokens: data.usage.input_tokens,
+        completionTokens: data.usage.output_tokens,
+        totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+      } : undefined
+    };
   }
 
-  private async callPerplexity(prompt: string): Promise<string> {
+  private async callPerplexity(prompt: string): Promise<LLMResponse> {
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -160,7 +204,14 @@ export class LLMClient {
     }
 
     const data = (await response.json()) as PerplexityResponse;
-    return data.choices[0].message.content;
+    return {
+      content: data.choices[0].message.content,
+      usage: data.usage ? {
+        promptTokens: data.usage.prompt_tokens,
+        completionTokens: data.usage.completion_tokens,
+        totalTokens: data.usage.total_tokens,
+      } : undefined
+    };
   }
 }
 

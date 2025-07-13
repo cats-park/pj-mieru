@@ -24,12 +24,19 @@ export interface UnifiedAnalysisResult {
     totalFiles: number;
     analysisTime: number;
     analysisLog: string[];
+    tokenUsage: {
+        totalTokens: number;
+        promptTokens: number;
+        completionTokens: number;
+        llmCalls: number;
+    };
 }
 export declare class UnifiedAnalyzer {
     private projectPath;
     private llmClient;
     private analysisLog;
     private startTime;
+    private tokenUsage;
     constructor(projectPath: string);
     analyze(): Promise<UnifiedAnalysisResult>;
     private scanFiles;
@@ -37,8 +44,18 @@ export declare class UnifiedAnalyzer {
     private detectFrameworkFallback;
     private getStructureHints;
     private identifyPages;
+    private isPageFile;
+    private generatePageName;
+    private generateRoute;
     private analyzePageComponents;
-    private extractComponentsFromPage;
+    private extractComponentsRecursively;
+    private findComponentFile;
+    private countTotalComponents;
+    private isComposableFunction;
+    private isExternalLibraryComponent;
+    private trackTokenUsage;
     private log;
+    private repairIncompleteJson;
+    private extractComponentsWithRegex;
 }
 //# sourceMappingURL=unifiedAnalyzer.d.ts.map

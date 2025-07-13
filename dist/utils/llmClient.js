@@ -29,6 +29,10 @@ export class LLMClient {
         this.config = config;
     }
     async chat(prompt) {
+        const response = await this.chatWithUsage(prompt);
+        return response.content;
+    }
+    async chatWithUsage(prompt) {
         switch (this.config.provider) {
             case 'openai':
                 return this.callOpenAI(prompt);
@@ -63,7 +67,14 @@ export class LLMClient {
             throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
         }
         const data = (await response.json());
-        return data.choices[0].message.content;
+        return {
+            content: data.choices[0].message.content,
+            usage: data.usage ? {
+                promptTokens: data.usage.prompt_tokens,
+                completionTokens: data.usage.completion_tokens,
+                totalTokens: data.usage.total_tokens,
+            } : undefined
+        };
     }
     async callAnthropic(prompt) {
         const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -89,7 +100,14 @@ export class LLMClient {
             throw new Error(`Anthropic API error: ${response.status} ${response.statusText}`);
         }
         const data = (await response.json());
-        return data.content[0].text;
+        return {
+            content: data.content[0].text,
+            usage: data.usage ? {
+                promptTokens: data.usage.input_tokens,
+                completionTokens: data.usage.output_tokens,
+                totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+            } : undefined
+        };
     }
     async callPerplexity(prompt) {
         const response = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -114,7 +132,14 @@ export class LLMClient {
             throw new Error(`Perplexity API error: ${response.status} ${response.statusText}`);
         }
         const data = (await response.json());
-        return data.choices[0].message.content;
+        return {
+            content: data.choices[0].message.content,
+            usage: data.usage ? {
+                promptTokens: data.usage.prompt_tokens,
+                completionTokens: data.usage.completion_tokens,
+                totalTokens: data.usage.total_tokens,
+            } : undefined
+        };
     }
 }
 export function createLLMClient() {
