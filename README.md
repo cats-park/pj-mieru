@@ -4,7 +4,7 @@ Advanced component visualization tool for Vue.js, React, Nuxt.js, and Next.js pr
 
 ## Overview
 
-見える（Mieru）は、現代のWebフレームワークにおけるコンポーネントとページの関係性を**美しく視覚化**するCLIツールです。
+見える（Mieru）は、現代のWebフレームワークにおけるコンポーネントとページの関係性を**視覚化**するCLIツールです。
 
 **独自のネストしたsubgraph構造**により、コンポーネント内で使用される子コンポーネントまで階層的に表現。直感的なカラーテーマで、ページ（緑）とコンポーネント（青系濃淡）を区別し、プロジェクトの構造を一目で理解できます。
 
